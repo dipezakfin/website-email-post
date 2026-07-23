@@ -41,6 +41,10 @@ IMAP_PORT = int(os.environ.get("WEBSITE_POST_EMAIL_IMAP_PORT", "993"))
 EMAIL_USERNAME = os.environ["WEBSITE_POST_EMAIL_USERNAME"]
 EMAIL_PASSWORD = os.environ["WEBSITE_POST_EMAIL_PASSWORD"]
 
+PLATFORM = os.environ.get("WEBSITE_PLATFORM", "joomla").strip().lower()
+if PLATFORM != "joomla":
+    raise NotImplementedError(f"WEBSITE_PLATFORM={PLATFORM!r} is not supported yet (only 'joomla' for now)")
+
 WEBSITE_URL = os.environ["WEBSITE_URL"].rstrip("/")
 WEBSITE_HTTPS_PORT = os.environ.get("WEBSITE_POST_HTTPS_PORT", "443")
 API_TOKEN = os.environ["WEBSITE_POST_API_TOKEN"]
@@ -216,7 +220,7 @@ def sanitize_filename(name):
     return name.strip("_") or "file"
 
 
-def upload_media(filename, file_bytes, adapter):
+def joomla_upload_media(filename, file_bytes, adapter):
     url = f"{joomla_base_url()}/media/{adapter}"
     files = {"file": (filename, file_bytes)}
     data = {"path": MEDIA_SUBPATH}
@@ -226,7 +230,7 @@ def upload_media(filename, file_bytes, adapter):
     return attrs.get("path"), attrs.get("url") or f"/{attrs.get('path')}"
 
 
-def get_or_create_tag_id(tag_name):
+def joomla_get_or_create_tag_id(tag_name):
     search_url = f"{joomla_base_url()}/tags"
     resp = requests.get(search_url, headers=joomla_headers(), params={"filter[title]": tag_name}, timeout=30)
     resp.raise_for_status()
@@ -252,7 +256,7 @@ def build_attachments_html(uploaded_files):
     return f"<h4>Συνημμένα αρχεία</h4>\n<ul>\n{items}\n</ul>"
 
 
-def create_article(title, body_html, tag_ids, featured):
+def joomla_create_article(title, body_html, tag_ids, featured):
     url = f"{joomla_base_url()}/content/articles"
     payload = {
         "title": title,
@@ -305,21 +309,21 @@ def process_message(raw_email):
     uploaded_doc_links = []
     for filename, raw_bytes, _content_type in other_files:
         safe_name = sanitize_filename(filename)
-        _, doc_url = upload_media(safe_name, raw_bytes, MEDIA_ADAPTER_DOCS)
+        _, doc_url = joomla_upload_media(safe_name, raw_bytes, MEDIA_ADAPTER_DOCS)
         uploaded_doc_links.append((filename, doc_url))
 
     image_tags_html = []
     for filename, raw_bytes, _content_type in images:
         jpeg_bytes = resize_image(raw_bytes)
         base_name = sanitize_filename(Path(filename).stem) + ".jpg"
-        _, img_url = upload_media(base_name, jpeg_bytes, MEDIA_ADAPTER_IMAGES)
+        _, img_url = joomla_upload_media(base_name, jpeg_bytes, MEDIA_ADAPTER_IMAGES)
         image_tags_html.append(f'<p><img src="{img_url}" alt="{title}"></p>')
 
     full_body = "\n".join(image_tags_html) + "\n" + body_html + "\n" + build_attachments_html(uploaded_doc_links)
 
-    tag_ids = [get_or_create_tag_id(t) for t in tag_names] if tag_names else []
+    tag_ids = [joomla_get_or_create_tag_id(t) for t in tag_names] if tag_names else []
 
-    article_id = create_article(title, full_body, tag_ids, featured)
+    article_id = joomla_create_article(title, full_body, tag_ids, featured)
     log_row(sender_email, raw_subject, "POSTED", article_id, len(images) + len(other_files))
     return "posted"
 
