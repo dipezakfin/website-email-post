@@ -1,6 +1,6 @@
 # website-email-post
 
-Διαβάζει νέα emails από ένα κοινό (sch.gr) mailbox και τα δημοσιεύει
+Διαβάζει νέα emails από ένα κοινό Gmail mailbox και τα δημοσιεύει
 αυτόματα ως άρθρα σε site Joomla (μέσω του Joomla Web Services API).
 
 Σχεδιασμένο να τρέχει **περιοδικά μέσω Windows Task Scheduler** (όχι σαν
@@ -55,6 +55,17 @@ copy .env.example .env
 ```
 
 Συμπλήρωσε το `.env` με τα πραγματικά στοιχεία (βλ. σχόλια μέσα στο αρχείο).
+
+### Gmail στοιχεία
+
+- Ενεργοποίησε IMAP: Gmail → Settings → **Forwarding and POP/IMAP** → Enable IMAP.
+- Χρειάζεται **App Password** (όχι το κανονικό password του λογαριασμού):
+  Google Account → **Security** → ενεργοποίησε **2-Step Verification** αν δεν
+  είναι ήδη → **App passwords** → δημιούργησε ένα νέο (π.χ. όνομα
+  "website-email-post") και βάλε το 16-χαρακτήρων αποτέλεσμα στο
+  `WEBSITE_POST_EMAIL_PASSWORD`.
+- Συνιστάται ξεχωριστός Gmail λογαριασμός αφιερωμένος μόνο σε αυτή τη
+  λειτουργία, όχι προσωπικός λογαριασμός κανενός.
 
 ### Joomla στοιχεία
 
