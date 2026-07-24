@@ -18,6 +18,7 @@ Email conventions (see README.md for full details):
 - Only senders in WEBSITE_POST_WHITELIST_EMAIL_ADDRESSES are processed.
 """
 
+import base64
 import csv
 import email
 import imaplib
@@ -74,7 +75,7 @@ IMAGE_MAX_WIDTH = int(env("WEBSITE_POST_IMAGE_MAX_WIDTH", "1600"))
 IMAGE_JPEG_QUALITY = int(env("WEBSITE_POST_IMAGE_JPEG_QUALITY", "75"))
 
 MEDIA_ADAPTER_IMAGES = env("WEBSITE_POST_MEDIA_ADAPTER_IMAGES", "local-images")
-MEDIA_ADAPTER_DOCS = env("WEBSITE_POST_MEDIA_ADAPTER_DOCS", "local-documents")
+MEDIA_ADAPTER_DOCS = env("WEBSITE_POST_MEDIA_ADAPTER_DOCS", "local-files")
 MEDIA_SUBPATH = env("WEBSITE_POST_MEDIA_SUBPATH", "mail-posts")
 
 LOG_FILE_PATH = Path(env("WEBSITE_POST_LOG_FILE_PATH", "logs/post_log.csv"))
@@ -232,13 +233,15 @@ def sanitize_filename(name):
 
 
 def joomla_upload_media(filename, file_bytes, adapter):
-    url = f"{joomla_base_url()}/media/{adapter}"
-    files = {"file": (filename, file_bytes)}
-    data = {"path": MEDIA_SUBPATH}
-    resp = requests.post(url, headers=joomla_headers(), files=files, data=data, timeout=60)
+    url = f"{joomla_base_url()}/media/files"
+    payload = {
+        "path": f"{adapter}:/{MEDIA_SUBPATH}/{filename}",
+        "content": base64.b64encode(file_bytes).decode("ascii"),
+    }
+    resp = requests.post(url, headers=joomla_headers({"Content-Type": "application/json"}), json=payload, timeout=60)
     resp.raise_for_status()
     attrs = resp.json()["data"]["attributes"]
-    return attrs.get("path"), attrs.get("url") or f"/{attrs.get('path')}"
+    return attrs.get("path"), attrs.get("thumb_path")
 
 
 def joomla_get_or_create_tag_id(tag_name):
@@ -354,7 +357,8 @@ def run():
     print(f"Found {len(msg_ids)} unread message(s).")
 
     for msg_id in msg_ids:
-        status, msg_data = imap_conn.fetch(msg_id, "(RFC822)")
+        fetch_item = "(BODY.PEEK[])" if DRY_RUN else "(RFC822)"
+        status, msg_data = imap_conn.fetch(msg_id, fetch_item)
         if status != "OK":
             continue
         raw_email = msg_data[0][1]
