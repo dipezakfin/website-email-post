@@ -270,6 +270,47 @@ def build_attachments_html(uploaded_files):
     return f"<h4>Συνημμένα αρχεία</h4>\n<ul>\n{items}\n</ul>"
 
 
+YOUTUBE_URL_RE = re.compile(
+    r"(?:https?://)?(?:www\.|m\.)?(?:youtube\.com/(?:watch\?v=|embed/|shorts/)|youtu\.be/)([\w-]{11})[^\s\"'<>]*",
+    re.IGNORECASE,
+)
+ANCHOR_TAG_RE = re.compile(r'<a\b[^>]*href="([^"]*)"[^>]*>.*?</a>', re.IGNORECASE | re.DOTALL)
+
+
+def youtube_embed_html(video_id):
+    return (
+        '<div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;max-width:100%;margin:1em 0;">'
+        f'<iframe src="https://www.youtube.com/embed/{video_id}" '
+        'style="position:absolute;top:0;left:0;width:100%;height:100%;" frameborder="0" '
+        'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" '
+        "allowfullscreen></iframe></div>"
+    )
+
+
+def embed_youtube_links(html):
+    """Replace YouTube links/anchors with embedded players.
+
+    Uses placeholder tokens so the embed HTML (which itself contains a
+    youtube.com URL) never gets re-matched by the second substitution pass.
+    """
+    embeds = []
+
+    def store(video_id):
+        embeds.append(youtube_embed_html(video_id))
+        return f"@@YT_EMBED_{len(embeds) - 1}@@"
+
+    def replace_anchor(match):
+        video = YOUTUBE_URL_RE.search(match.group(1))
+        return store(video.group(1)) if video else match.group(0)
+
+    html = ANCHOR_TAG_RE.sub(replace_anchor, html)
+    html = YOUTUBE_URL_RE.sub(lambda m: store(m.group(1)), html)
+
+    for index, embed_html in enumerate(embeds):
+        html = html.replace(f"@@YT_EMBED_{index}@@", embed_html)
+    return html
+
+
 def joomla_create_article(title, body_html, tag_ids, featured):
     url = f"{joomla_base_url()}/content/articles"
     payload = {
@@ -320,6 +361,7 @@ def process_message(raw_email):
     featured = DEFAULT_FEATURED if featured_override is None else featured_override
 
     body_html, images, other_files = get_body_and_attachments(msg)
+    body_html = embed_youtube_links(body_html)
 
     uploaded_doc_links = []
     for filename, raw_bytes, _content_type in other_files:

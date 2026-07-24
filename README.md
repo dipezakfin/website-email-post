@@ -20,6 +20,8 @@
      του άρθρου.
    - **Λοιπά αρχεία** (pdf/docx/xlsx/...) → ανεβαίνουν στο Media Manager και
      προστίθενται ως links στο τέλος του άρθρου, κάτω από "Συνημμένα αρχεία".
+   - **YouTube links** (μέσα στο κείμενο, ως link ή σκέτο URL) →
+     αντικαθίστανται αυτόματα με ενσωματωμένο (embedded) video player.
 4. Δημοσιεύει το άρθρο μέσω του Joomla API (ως draft ή published, ανάλογα με
    `WEBSITE_POST_DEFAULT_STATUS`).
 5. Μετακινεί το email σε φάκελο `Processed` (επιτυχία) ή `Failed` (σφάλμα) στο
