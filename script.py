@@ -36,39 +36,50 @@ from PIL import Image, ImageOps
 
 load_dotenv()
 
-IMAP_SERVER = os.environ["WEBSITE_POST_EMAIL_IMAP_SERVER"]
-IMAP_PORT = int(os.environ.get("WEBSITE_POST_EMAIL_IMAP_PORT", "993"))
-EMAIL_USERNAME = os.environ["WEBSITE_POST_EMAIL_USERNAME"]
-EMAIL_PASSWORD = os.environ["WEBSITE_POST_EMAIL_PASSWORD"]
 
-PLATFORM = os.environ.get("WEBSITE_PLATFORM", "joomla").strip().lower()
+def env(name, default=None, required=False):
+    """os.environ.get, but treats an empty string the same as "unset"."""
+    value = os.environ.get(name)
+    if value is not None and value.strip() != "":
+        return value
+    if required:
+        raise KeyError(f"Required environment variable {name!r} is missing or empty")
+    return default
+
+
+IMAP_SERVER = env("WEBSITE_POST_EMAIL_IMAP_SERVER", required=True)
+IMAP_PORT = int(env("WEBSITE_POST_EMAIL_IMAP_PORT", "993"))
+EMAIL_USERNAME = env("WEBSITE_POST_EMAIL_USERNAME", required=True)
+EMAIL_PASSWORD = env("WEBSITE_POST_EMAIL_PASSWORD", required=True)
+
+PLATFORM = env("WEBSITE_PLATFORM", "joomla").strip().lower()
 if PLATFORM != "joomla":
     raise NotImplementedError(f"WEBSITE_PLATFORM={PLATFORM!r} is not supported yet (only 'joomla' for now)")
 
-WEBSITE_URL = os.environ["WEBSITE_URL"].rstrip("/")
-WEBSITE_HTTPS_PORT = os.environ.get("WEBSITE_POST_HTTPS_PORT", "443")
-API_TOKEN = os.environ["WEBSITE_POST_API_TOKEN"]
-CATEGORY_ID = int(os.environ["WEBSITE_POST_CATEGORY_ID"])
+WEBSITE_URL = env("WEBSITE_URL", required=True).rstrip("/")
+WEBSITE_HTTPS_PORT = env("WEBSITE_POST_HTTPS_PORT", "443")
+API_TOKEN = env("WEBSITE_POST_API_TOKEN", required=True)
+CATEGORY_ID = int(env("WEBSITE_POST_CATEGORY_ID", required=True))
 
 WHITELIST = {
     a.strip().lower()
-    for a in os.environ.get("WEBSITE_POST_WHITELIST_EMAIL_ADDRESSES", "").split(",")
+    for a in env("WEBSITE_POST_WHITELIST_EMAIL_ADDRESSES", "").split(",")
     if a.strip()
 }
 
-DEFAULT_STATUS = os.environ.get("WEBSITE_POST_DEFAULT_STATUS", "DRAFT").strip().upper()
-DEFAULT_FEATURED = os.environ.get("WEBSITE_POST_DEFAULT_FEATURED", "NO").strip().upper() == "YES"
+DEFAULT_STATUS = env("WEBSITE_POST_DEFAULT_STATUS", "DRAFT").strip().upper()
+DEFAULT_FEATURED = env("WEBSITE_POST_DEFAULT_FEATURED", "NO").strip().upper() == "YES"
 
-IMAGE_MAX_WIDTH = int(os.environ.get("WEBSITE_POST_IMAGE_MAX_WIDTH", "1600"))
-IMAGE_JPEG_QUALITY = int(os.environ.get("WEBSITE_POST_IMAGE_JPEG_QUALITY", "75"))
+IMAGE_MAX_WIDTH = int(env("WEBSITE_POST_IMAGE_MAX_WIDTH", "1600"))
+IMAGE_JPEG_QUALITY = int(env("WEBSITE_POST_IMAGE_JPEG_QUALITY", "75"))
 
-MEDIA_ADAPTER_IMAGES = os.environ.get("WEBSITE_POST_MEDIA_ADAPTER_IMAGES", "local-images")
-MEDIA_ADAPTER_DOCS = os.environ.get("WEBSITE_POST_MEDIA_ADAPTER_DOCS", "local-documents")
-MEDIA_SUBPATH = os.environ.get("WEBSITE_POST_MEDIA_SUBPATH", "mail-posts")
+MEDIA_ADAPTER_IMAGES = env("WEBSITE_POST_MEDIA_ADAPTER_IMAGES", "local-images")
+MEDIA_ADAPTER_DOCS = env("WEBSITE_POST_MEDIA_ADAPTER_DOCS", "local-documents")
+MEDIA_SUBPATH = env("WEBSITE_POST_MEDIA_SUBPATH", "mail-posts")
 
-LOG_FILE_PATH = Path(os.environ.get("WEBSITE_POST_LOG_FILE_PATH", "logs/post_log.csv"))
+LOG_FILE_PATH = Path(env("WEBSITE_POST_LOG_FILE_PATH", "logs/post_log.csv"))
 
-DRY_RUN = os.environ.get("WEBSITE_POST_DRY_RUN", "NO").strip().upper() == "YES"
+DRY_RUN = env("WEBSITE_POST_DRY_RUN", "NO").strip().upper() == "YES"
 
 PROCESSED_FOLDER = "Processed"
 FAILED_FOLDER = "Failed"
@@ -202,7 +213,7 @@ def resize_image(raw_bytes):
 def joomla_headers(extra=None):
     headers = {
         "Authorization": f"Bearer {API_TOKEN}",
-        "X-Joomla-Token": API_TOKEN,
+        "Accept": "application/vnd.api+json",
     }
     if extra:
         headers.update(extra)
@@ -264,6 +275,7 @@ def joomla_create_article(title, body_html, tag_ids, featured):
         "articletext": body_html,
         "state": 1 if DEFAULT_STATUS == "PUBLISHED" else 0,
         "featured": 1 if featured else 0,
+        "language": "*",
     }
     if tag_ids:
         payload["tags"] = tag_ids

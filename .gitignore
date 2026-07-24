@@ -1,4 +1,6 @@
 .env
+.env.*
+!.env.example
 logs/*.csv
 __pycache__/
 *.pyc
