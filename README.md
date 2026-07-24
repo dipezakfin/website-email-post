@@ -175,6 +175,25 @@ base64-encoded hash (`sha256:cost:hash`) όταν αποκωδικοποιηθε
 - `POST /tags` χρειάζεται `parent_id` (π.χ. `1` για root), `language`, και
   `description` (έστω κενό `""`) — χωρίς αυτά γυρνάει 400 με διαφορετικό
   μήνυμα κάθε φορά ανά πεδίο που λείπει.
+- **Media upload χρειάζεται query param `mediatypes`.** Χωρίς αυτό, το
+  Joomla εσωτερικά κάνει default σε `mediatypes=0` (**μόνο εικόνες**) και
+  απορρίπτει *οποιοδήποτε* pdf/docx/xlsx/txt με το γενικό μήνυμα `"Invalid
+  path or file type not allowed"` — ανεξάρτητα από τι λένε τα "Allowed
+  Extensions"/"Legal MIME Types" στα Media Options (ξοδεύτηκε πολύς χρόνος
+  σε αυτό γιατί το μήνυμα σφάλματος παραπέμπει σε λάθος αιτία). Βρέθηκε
+  διαβάζοντας το `ApiModel::isMediaFile()` στον πηγαίο κώδικα του Joomla.
+  Λύση: στέλνουμε πάντα `?mediatypes=0,1,2,3` (όλοι οι τύποι) σε κάθε
+  upload request.
+- Τα non-image uploads (`local-files`) **δεν** επιστρέφουν `thumb_path` στο
+  response (μόνο οι εικόνες το έχουν, μέσω thumbnail generation). Το
+  public URL χτίζεται manually ως
+  `{WEBSITE_URL}/{adapter χωρίς το "local-" πρόθεμα}/{path}` — π.χ. adapter
+  `local-files` → φάκελος `files/`.
+- `GET /tags?filter[title]=...` **δεν φιλτράρει τίποτα** server-side —
+  επιστρέφει όλα τα tags με pagination (20/σελίδα) ανεξαρτήτως filter. Αν
+  ψάχνεις tag πέρα από τα πρώτα 20, δεν θα το βρεις και θα προσπαθήσεις να
+  το ξαναδημιουργήσεις (→ 400 `"Another Tag has the same alias"`). Λύση:
+  `?page[limit]=100` και client-side match στο title.
 
 ### Πρώτη δοκιμή (χωρίς να δημιουργηθούν πραγματικά άρθρα)
 
