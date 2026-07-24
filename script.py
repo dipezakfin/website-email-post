@@ -26,6 +26,7 @@ import io
 import os
 import re
 import sys
+import uuid
 from datetime import datetime, timezone
 from email.header import decode_header
 from email.utils import parseaddr
@@ -150,24 +151,45 @@ def get_body_and_attachments(msg):
     """Return (body_html, images[], other_files[]) from an email.message.Message.
 
     images / other_files are lists of (filename, bytes, content_type).
+
+    Gmail marks image attachments as Content-Disposition: inline (with a
+    Content-ID), same as it would a genuinely embedded signature/quote
+    image - the two are told apart by whether the body HTML actually
+    references that Content-ID via "cid:...".
     """
     html_body = None
     text_body = None
     images = []
     other_files = []
+    parts = []
 
     for part in msg.walk():
-        content_type = part.get_content_type()
-        disposition = str(part.get("Content-Disposition") or "")
-
         if part.is_multipart():
             continue
+        parts.append(part)
+
+    referenced_cids = set()
+    for part in parts:
+        if part.get_content_type() == "text/html":
+            payload = part.get_payload(decode=True)
+            if payload:
+                charset = part.get_content_charset() or "utf-8"
+                referenced_cids.update(re.findall(r'cid:([^"\'>\s]+)', payload.decode(charset, errors="replace")))
+
+    for part in parts:
+        content_type = part.get_content_type()
+        disposition = str(part.get("Content-Disposition") or "")
 
         filename = part.get_filename()
         if filename:
             filename = decode_mime_words(filename)
 
-        if "attachment" in disposition or (filename and "inline" not in disposition and content_type not in ("text/plain", "text/html")):
+        content_id = (part.get("Content-ID") or "").strip("<>")
+        is_referenced_inline_image = content_id and content_id in referenced_cids
+
+        if not is_referenced_inline_image and (
+            "attachment" in disposition or (filename and content_type not in ("text/plain", "text/html"))
+        ):
             payload = part.get_payload(decode=True)
             if payload is None:
                 continue
@@ -238,15 +260,33 @@ def joomla_upload_media(filename, file_bytes, adapter):
         "path": f"{adapter}:/{MEDIA_SUBPATH}/{filename}",
         "content": base64.b64encode(file_bytes).decode("ascii"),
     }
-    resp = requests.post(url, headers=joomla_headers({"Content-Type": "application/json"}), json=payload, timeout=60)
+    resp = requests.post(
+        url,
+        headers=joomla_headers({"Content-Type": "application/json"}),
+        params={"mediatypes": "0,1,2,3"},
+        json=payload,
+        timeout=60,
+    )
     resp.raise_for_status()
     attrs = resp.json()["data"]["attributes"]
-    return attrs.get("path"), attrs.get("thumb_path")
+
+    public_url = attrs.get("thumb_path")
+    if not public_url:
+        # Non-image uploads don't get a thumb_path back - build the public
+        # URL ourselves. Assumes the Joomla convention of adapter id
+        # "local-<foldername>" mapping to the "<foldername>/" public path
+        # (e.g. "local-files" -> /files/, "local-images" -> /images/).
+        public_folder = adapter.removeprefix("local-")
+        public_url = f"{WEBSITE_URL}/{public_folder}/{MEDIA_SUBPATH}/{filename}"
+
+    return attrs.get("path"), public_url
 
 
 def joomla_get_or_create_tag_id(tag_name):
     search_url = f"{joomla_base_url()}/tags"
-    resp = requests.get(search_url, headers=joomla_headers(), params={"filter[title]": tag_name}, timeout=30)
+    # filter[title] is accepted by the API but doesn't actually filter
+    # anything server-side - fetch a large page and match client-side.
+    resp = requests.get(search_url, headers=joomla_headers(), params={"page[limit]": 100}, timeout=30)
     resp.raise_for_status()
     results = resp.json().get("data", [])
     for item in results:
@@ -363,16 +403,20 @@ def process_message(raw_email):
     body_html, images, other_files = get_body_and_attachments(msg)
     body_html = embed_youtube_links(body_html)
 
+    # Unique per-message prefix so attachments with common names (e.g. two
+    # different "Πρόσκληση.pdf") never collide in the shared media folder.
+    unique_prefix = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S") + "-" + uuid.uuid4().hex[:6]
+
     uploaded_doc_links = []
     for filename, raw_bytes, _content_type in other_files:
-        safe_name = sanitize_filename(filename)
+        safe_name = f"{unique_prefix}-{sanitize_filename(filename)}"
         _, doc_url = joomla_upload_media(safe_name, raw_bytes, MEDIA_ADAPTER_DOCS)
         uploaded_doc_links.append((filename, doc_url))
 
     image_tags_html = []
     for filename, raw_bytes, _content_type in images:
         jpeg_bytes = resize_image(raw_bytes)
-        base_name = sanitize_filename(Path(filename).stem) + ".jpg"
+        base_name = f"{unique_prefix}-{sanitize_filename(Path(filename).stem)}.jpg"
         _, img_url = joomla_upload_media(base_name, jpeg_bytes, MEDIA_ADAPTER_IMAGES)
         image_tags_html.append(f'<p><img src="{img_url}" alt="{title}"></p>')
 
