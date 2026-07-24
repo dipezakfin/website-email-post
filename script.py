@@ -256,7 +256,7 @@ def joomla_get_or_create_tag_id(tag_name):
     create_resp = requests.post(
         search_url,
         headers=joomla_headers({"Content-Type": "application/json"}),
-        json={"title": tag_name, "published": 1},
+        json={"title": tag_name, "published": 1, "parent_id": 1, "language": "*", "description": ""},
         timeout=30,
     )
     create_resp.raise_for_status()
