@@ -78,6 +78,104 @@ copy .env.example .env
   ονόματα adapters που θα χρησιμοποιηθούν για εικόνες/έγγραφα και βάλτα στο
   `.env` (`WEBSITE_POST_MEDIA_ADAPTER_IMAGES`, `WEBSITE_POST_MEDIA_ADAPTER_DOCS`).
 
+## Server / Joomla ρυθμίσεις που χρειάστηκαν (dipe.zak.sch.gr)
+
+Το site τρέχει σε **nginx (proxy mode) μπροστά από Apache**, με **Imunify360**
+bot-protection, σε **Joomla 6.1.2**. Μέχρι να δουλέψει το API χρειάστηκαν οι
+παρακάτω αλλαγές — αν στηθεί ξανά σε άλλο site/server, πιθανόν να χρειαστούν
+κάποια (όχι όλα) από αυτά.
+
+### 1. `.htaccess` — να περνάει το `Authorization` header
+
+Το nginx/Apache setup δεν περνούσε το HTTP header `Authorization` στην PHP από
+default (το Joomla έβλεπε κάθε request σαν να μην είχε καθόλου token,
+ανεξαρτήτως τι στέλναμε — 401 σε όλες τις περιπτώσεις). Προστέθηκε στο
+`.htaccess`, στη ρίζα του Joomla site:
+
+```apache
+RewriteEngine On
+RewriteCond %{HTTP:Authorization} ^(.*)
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%1]
+```
+
+Επιβεβαιώθηκε με ένα προσωρινό διαγνωστικό αρχείο (`getallheaders()` dump) πριν
+διαγραφεί.
+
+### 2. Imunify360 — whitelist του IP του Windows server
+
+Το Imunify360 bot-protection μπλόκαρε **κάθε** request προς το `/api/*` με
+μήνυμα `"Access denied by Imunify360 bot-protection. IPs used for automation
+should be whitelisted"` — ανεξάρτητα από token/headers, με βάση αποκλειστικά
+το IP προέλευσης.
+
+**Λύση:** στο hosting control panel του site (screen "Apache & nginx Settings
+for dipe.zak.sch.gr") → ενότητα **"Deny access to the site"** → προστέθηκε
+**exclude/whitelist** για το static IP του Windows server που τρέχει το
+script.
+
+> ⚠️ Αν το IP του server αλλάξει ποτέ (π.χ. αλλαγή σύνδεσης/παρόχου), το API
+> θα ξαναμπλοκαριστεί μέχρι να ενημερωθεί η λίστα σε αυτή τη σελίδα.
+
+### 3. Joomla plugins που ενεργοποιήθηκαν
+
+System → Manage → Plugins:
+- **API Authentication - Web Services Joomla Token** — ενεργό (αυτό
+  επιτρέπει την αυθεντικοποίηση με `Authorization: Bearer <token>`).
+- **API Authentication - Web Services Basic Auth** — δοκιμάστηκε
+  απενεργοποιημένο/ενεργό εναλλάξ κατά τη διάγνωση· μπορεί να μείνει
+  ενεργό ή ανενεργό, δεν επηρεάζει το token auth.
+- **Web Services - Content**, **Web Services - Media**, **Web Services -
+  Tags** — ενεργά (χρειάζονται για τα αντίστοιχα endpoints
+  `/content/articles`, `/media/files`, `/tags`).
+
+### 4. Χρήστης API — ομάδα "Super Users"
+
+Ο χρήστης στον οποίο ανήκει το API token πρέπει να είναι στην ομάδα
+**Super Users** (Users → Manage → επεξεργασία χρήστη → Account Details →
+Assigned User Groups). Με μόνο "Administrator" group το API έδινε **401
+Forbidden** παντού, παρότι το token ήταν σωστό.
+
+> Μετά από αλλαγή ομάδας, χρειάζεται να ξαναγίνει **Generate** νέου token
+> (tab "Joomla API Token") ώστε να αντιστοιχεί στα νέα δικαιώματα.
+
+### 5. Το πεδίο "Token" στο Joomla UI
+
+Το string που δείχνει το Joomla στο tab "Joomla API Token" (κάτι σαν
+`c2hhMjU2Oj...`) **είναι** το πραγματικό token προς χρήση — παρότι μοιάζει με
+base64-encoded hash (`sha256:cost:hash`) όταν αποκωδικοποιηθεί. Χρησιμοποιείται
+αυτούσιο, ως έχει, στο header `Authorization: Bearer <token>`.
+
+### 6. Πραγματικό API contract (διαφορετικό από την επίσημη τεκμηρίωση/υποθέσεις)
+
+Ανακαλύφθηκαν εμπειρικά (και επιβεβαιώθηκαν στον πηγαίο κώδικα του Joomla,
+`plugins/webservices/media` + `api/components/com_media`) τα εξής, που δεν
+ήταν προφανή/τεκμηριωμένα:
+
+- Κάθε request στο API **πρέπει** να έχει header
+  `Accept: application/vnd.api+json` — χωρίς αυτό, γυρνάει **415 Unsupported
+  Media Type** πριν καν φτάσει σε Joomla-level λογική.
+- `POST /content/articles` χρειάζεται υποχρεωτικά πεδίο `"language": "*"`
+  (αλλιώς 400 `Field 'language' doesn't have a default value`).
+- Το media upload **δεν** είναι multipart/form-data. Είναι:
+  ```
+  POST /api/index.php/v1/media/files
+  Content-Type: application/json
+
+  {
+    "path": "local-images:/mail-posts/filename.jpg",
+    "content": "<base64-encoded περιεχόμενο αρχείου>"
+  }
+  ```
+  Το πραγματικό public URL της εικόνας επιστρέφεται στο πεδίο
+  `data.attributes.thumb_path` της απάντησης.
+- Τα διαθέσιμα adapter ids ανακαλύπτονται μέσω
+  `GET /api/index.php/v1/media/adapters` — σε αυτό το site είναι
+  **`local-images`** (φάκελος `images/`) και **`local-files`** (φάκελος
+  `files/`), όχι `local-documents` όπως θα περίμενε κανείς.
+- `POST /tags` χρειάζεται `parent_id` (π.χ. `1` για root), `language`, και
+  `description` (έστω κενό `""`) — χωρίς αυτά γυρνάει 400 με διαφορετικό
+  μήνυμα κάθε φορά ανά πεδίο που λείπει.
+
 ### Πρώτη δοκιμή (χωρίς να δημιουργηθούν πραγματικά άρθρα)
 
 Βάλε `WEBSITE_POST_DRY_RUN=YES` στο `.env`, στείλε ένα δοκιμαστικό email, και
