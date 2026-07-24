@@ -383,8 +383,14 @@ def move_message(imap_conn, msg_id, destination_folder):
     imap_conn.select("INBOX")
     ensure_folder(imap_conn, destination_folder)
     imap_conn.select("INBOX")
-    imap_conn.copy(msg_id, destination_folder)
-    imap_conn.store(msg_id, "+FLAGS", "\\Deleted")
+
+    status, response = imap_conn.copy(msg_id, destination_folder)
+    if status != "OK":
+        raise RuntimeError(f"IMAP COPY to {destination_folder} failed: {response}")
+
+    status, response = imap_conn.store(msg_id, "+FLAGS", "\\Deleted")
+    if status != "OK":
+        raise RuntimeError(f"IMAP STORE (\\Deleted) failed: {response}")
 
 
 def process_message(raw_email):
@@ -451,8 +457,6 @@ def run():
 
         try:
             process_message(raw_email)
-            if not DRY_RUN:
-                move_message(imap_conn, msg_id, PROCESSED_FOLDER)
         except Exception as exc:
             msg = email.message_from_bytes(raw_email)
             sender_email = parseaddr(msg.get("From", ""))[1].lower()
@@ -460,7 +464,20 @@ def run():
             log_row(sender_email, subject, "ERROR", error_message=str(exc))
             print(f"ERROR processing message {msg_id}: {exc}", file=sys.stderr)
             if not DRY_RUN:
-                move_message(imap_conn, msg_id, FAILED_FOLDER)
+                try:
+                    move_message(imap_conn, msg_id, FAILED_FOLDER)
+                except Exception as move_exc:
+                    print(f"WARNING: also failed to move message {msg_id} to {FAILED_FOLDER}: {move_exc}", file=sys.stderr)
+            continue
+
+        if not DRY_RUN:
+            try:
+                move_message(imap_conn, msg_id, PROCESSED_FOLDER)
+            except Exception as move_exc:
+                # The article was already posted successfully - only the
+                # mailbox tidy-up failed. Don't log this as a processing
+                # ERROR (it isn't one), just flag it for manual cleanup.
+                print(f"WARNING: article posted but failed to move message {msg_id} to {PROCESSED_FOLDER}: {move_exc}", file=sys.stderr)
 
     imap_conn.expunge()
     imap_conn.close()
