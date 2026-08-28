@@ -160,12 +160,15 @@ def parse_subject(raw_subject):
 def get_body_and_attachments(msg):
     """Return (body_html, images[], other_files[]) from an email.message.Message.
 
-    images / other_files are lists of (filename, bytes, content_type).
+    other_files: list of (filename, bytes, content_type).
+    images: list of (filename, bytes, content_type, content_id_or_None).
 
-    Gmail marks image attachments as Content-Disposition: inline (with a
-    Content-ID), same as it would a genuinely embedded signature/quote
-    image - the two are told apart by whether the body HTML actually
-    references that Content-ID via "cid:...".
+    Every image part is captured, whether Gmail tagged it
+    Content-Disposition: attachment (a "normal" attached photo) or inline
+    with a Content-ID (a photo pasted directly into the body, or a
+    signature logo) - process_message() decides what to do with the
+    content_id afterwards (rewrite the "cid:..." reference in body_html to
+    the uploaded URL instead of leaving a broken image).
     """
     html_body = None
     text_body = None
@@ -178,14 +181,6 @@ def get_body_and_attachments(msg):
             continue
         parts.append(part)
 
-    referenced_cids = set()
-    for part in parts:
-        if part.get_content_type() == 'text/html':
-            payload = part.get_payload(decode=True)
-            if payload:
-                charset = part.get_content_charset() or 'utf-8'
-                referenced_cids.update(re.findall(r'cid:([^"\'>\s]+)', payload.decode(charset, errors='replace')))
-
     for part in parts:
         content_type = part.get_content_type()
         disposition = str(part.get('Content-Disposition') or '')
@@ -195,18 +190,19 @@ def get_body_and_attachments(msg):
             filename = decode_mime_words(filename)
 
         content_id = (part.get('Content-ID') or '').strip('<>')
-        is_referenced_inline_image = content_id and content_id in referenced_cids
+        is_image = content_type.startswith('image/')
 
-        if not is_referenced_inline_image and (
-            'attachment' in disposition or (filename and content_type not in ('text/plain', 'text/html'))
-        ):
+        if is_image and (filename or content_id):
+            payload = part.get_payload(decode=True)
+            if payload is not None:
+                images.append((filename or 'image', payload, content_type, content_id or None))
+            continue
+
+        if not is_image and ('attachment' in disposition or (filename and content_type not in ('text/plain', 'text/html'))):
             payload = part.get_payload(decode=True)
             if payload is None:
                 continue
-            if content_type.startswith('image/'):
-                images.append((filename or 'image', payload, content_type))
-            else:
-                other_files.append((filename or 'attachment', payload, content_type))
+            other_files.append((filename or 'attachment', payload, content_type))
             continue
 
         if content_type == 'text/html' and html_body is None:
@@ -404,16 +400,20 @@ def ensure_folder(imap_conn, folder_name):
         imap_conn.create(folder_name)
 
 
-def move_message(imap_conn, msg_id, destination_folder):
+def move_message(imap_conn, msg_uid, destination_folder):
+    """msg_uid: IMAP UID (stable across mid-session mailbox mutations),
+    NOT a sequence number - sequence numbers can silently shift when other
+    messages in the same loop get moved/expunged earlier in the same run,
+    which caused fetches for later messages to return garbage."""
     imap_conn.select('INBOX')
     ensure_folder(imap_conn, destination_folder)
     imap_conn.select('INBOX')
 
-    status, response = imap_conn.copy(msg_id, destination_folder)
+    status, response = imap_conn.uid('COPY', msg_uid, destination_folder)
     if status != 'OK':
         raise RuntimeError(f'IMAP COPY to {destination_folder} failed: {response}')
 
-    status, response = imap_conn.store(msg_id, '+FLAGS', '\\Deleted')
+    status, response = imap_conn.uid('STORE', msg_uid, '+FLAGS', '\\Deleted')
     if status != 'OK':
         raise RuntimeError(f'IMAP STORE (\\Deleted) failed: {response}')
 
@@ -455,11 +455,19 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
         uploaded_doc_links.append((filename, doc_url))
 
     image_tags_html = []
-    for filename, raw_bytes, _content_type in images:
+    for filename, raw_bytes, _content_type, content_id in images:
         jpeg_bytes = resize_image(config, raw_bytes)
         base_name = f'{unique_prefix}-{sanitize_filename(Path(filename).stem)}.jpg'
         _, img_url = joomla_upload_media(config, base_name, jpeg_bytes, media_adapter_images)
-        image_tags_html.append(f'<p><img src="{img_url}" alt="{title}"></p>')
+
+        cid_ref = f'cid:{content_id}'
+        if content_id and cid_ref in body_html:
+            # Pasted-inline image (or signature logo) - replace the broken
+            # "cid:..." reference in place instead of also appending it as
+            # a separate block, so it renders exactly where it was.
+            body_html = body_html.replace(cid_ref, img_url)
+        else:
+            image_tags_html.append(f'<p><img src="{img_url}" alt="{title}"></p>')
 
     full_body = '\n'.join(image_tags_html) + '\n' + body_html + '\n' + build_attachments_html(uploaded_doc_links)
 
@@ -502,18 +510,22 @@ def run_check_mail(config: dict, logger: RunLogger, control=None, progress_cb=No
     imap_conn.login(email_username, email_password)
     imap_conn.select('INBOX')
 
-    status, data = imap_conn.search(None, 'UNSEEN')
+    # UIDs (not sequence numbers) - sequence numbers can silently shift
+    # mid-loop once move_message() starts copying/flagging earlier messages
+    # in the same session, which caused fetches for later messages to
+    # return garbage ("'NoneType' object is not subscriptable").
+    status, data = imap_conn.uid('SEARCH', None, 'UNSEEN')
     if status != 'OK':
         logger.log('Αποτυχία αναζήτησης IMAP', 'ERROR')
         imap_conn.logout()
         return {'ok': False, 'exit_code': 1, 'posted': 0, 'skipped': 0, 'failed': 0}
 
-    msg_ids = data[0].split()
-    logger.log(f'Βρέθηκαν {len(msg_ids)} μη αναγνωσμένο(α) μήνυμα(τα).')
+    msg_uids = data[0].split()
+    logger.log(f'Βρέθηκαν {len(msg_uids)} μη αναγνωσμένο(α) μήνυμα(τα).')
 
     posted = skipped = failed = 0
 
-    for i, msg_id in enumerate(msg_ids, start=1):
+    for i, msg_uid in enumerate(msg_uids, start=1):
         if control:
             control.wait_if_paused()
             if control.stop_event.is_set():
@@ -521,10 +533,12 @@ def run_check_mail(config: dict, logger: RunLogger, control=None, progress_cb=No
                 break
 
         fetch_item = '(BODY.PEEK[])' if dry_run else '(RFC822)'
-        status, msg_data = imap_conn.fetch(msg_id, fetch_item)
-        if status != 'OK':
+        status, msg_data = imap_conn.uid('FETCH', msg_uid, fetch_item)
+        if status != 'OK' or not msg_data or not isinstance(msg_data[0], tuple):
+            logger.log(f'Παράλειψη μηνύματος uid={msg_uid.decode() if isinstance(msg_uid, bytes) else msg_uid}: μη έγκυρη απάντηση IMAP FETCH ({status})', 'WARN')
+            failed += 1
             if progress_cb:
-                progress_cb(i, len(msg_ids))
+                progress_cb(i, len(msg_uids))
             continue
         raw_email = msg_data[0][1]
 
@@ -539,27 +553,27 @@ def run_check_mail(config: dict, logger: RunLogger, control=None, progress_cb=No
             sender_email = parseaddr(msg.get('From', ''))[1].lower()
             subject = decode_mime_words(msg.get('Subject', ''))
             log_row(config, sender_email, subject, 'ERROR', error_message=str(exc))
-            logger.log(f'ΣΦΑΛΜΑ επεξεργασίας μηνύματος {msg_id}: {exc}', 'ERROR')
+            logger.log(f'ΣΦΑΛΜΑ επεξεργασίας μηνύματος uid={msg_uid}: {exc}', 'ERROR')
             failed += 1
             if not dry_run:
                 try:
-                    move_message(imap_conn, msg_id, FAILED_FOLDER)
+                    move_message(imap_conn, msg_uid, FAILED_FOLDER)
                 except Exception as move_exc:
                     logger.log(f'Απέτυχε και η μετακίνηση στο {FAILED_FOLDER}: {move_exc}', 'WARN')
             if progress_cb:
-                progress_cb(i, len(msg_ids))
+                progress_cb(i, len(msg_uids))
             continue
 
         if not dry_run:
             try:
-                move_message(imap_conn, msg_id, PROCESSED_FOLDER)
+                move_message(imap_conn, msg_uid, PROCESSED_FOLDER)
             except Exception as move_exc:
                 # The article was already posted successfully - only the
                 # mailbox tidy-up failed. Not a processing error.
                 logger.log(f'Το άρθρο αναρτήθηκε αλλά απέτυχε η μετακίνηση στο {PROCESSED_FOLDER}: {move_exc}', 'WARN')
 
         if progress_cb:
-            progress_cb(i, len(msg_ids))
+            progress_cb(i, len(msg_uids))
 
     imap_conn.expunge()
     imap_conn.close()
