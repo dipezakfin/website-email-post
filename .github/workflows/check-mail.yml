@@ -43,15 +43,3 @@ jobs:
           WEBSITE_POST_LOG_FILE_PATH: logs/post_log.csv
           WEBSITE_POST_DRY_RUN: ${{ secrets.WEBSITE_POST_DRY_RUN }}
         run: python website-email-post.py
-
-      - name: Commit ενημερωμένο CSV log
-        run: |
-          if [ ! -f logs/post_log.csv ]; then
-            echo "Δεν υπάρχει ακόμα post_log.csv (0 μηνύματα προς καταγραφή) - τίποτα να γίνει commit."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -f logs/post_log.csv
-          git diff --cached --quiet || git commit -m "Ενημέρωση post_log.csv [skip ci]"
-          git push

@@ -246,10 +246,14 @@ python website-email-post.py --dry-run   # δοκιμή, χωρίς πραγμα
   token), πρέπει να ενημερώσεις **και** το αντίστοιχο GitHub Secret
   χειροκίνητα (`gh secret set ΟΝΟΜΑ --repo dipezakfin/website-email-post`),
   δεν συγχρονίζονται αυτόματα.
-- **Log**: το `logs/post_log.csv` γίνεται commit πίσω στο repo μετά από κάθε
-  run που βρήκε/επεξεργάστηκε μηνύματα (ώστε να μην χάνεται το ιστορικό σε
-  κάθε φρέσκο runner) — commit message `[skip ci]` ώστε να μην ξαναπυροδοτεί
-  τίποτα.
+- **Log**: το `logs/post_log.csv` **δεν** γίνεται commit πίσω στο repo —
+  περιέχει πραγματικά emails αποστολέων/θέματα, και το git history είναι
+  μόνιμο (ακόμα κι αν διαγραφεί αργότερα το αρχείο, παραμένει σε παλιά
+  commits). Το log μένει μόνο μέσα στο Actions run output (ορατό μόνο στο
+  repo, με αυτόματη λήξη μετά από κάποιο διάστημα — GitHub default
+  retention για private repos, ~90 μέρες) — προσωρινό, όχι μόνιμο.
+  Για πλήρες μόνιμο ιστορικό, χρησιμοποίησε το τοπικό GUI (tab "Έλεγχος
+  Mail" → "Πρόσφατες αναρτήσεις") όταν τρέχεις χειροκίνητα.
 - **Χειροκίνητο τρέξιμο**: Actions tab στο GitHub repo → "Check mail and
   post to Joomla" → "Run workflow", ή `gh workflow run check-mail.yml --repo dipezakfin/website-email-post`.
 - **Concurrency**: αν ένα run είναι ακόμα σε εξέλιξη όταν πυροδοτήσει το
