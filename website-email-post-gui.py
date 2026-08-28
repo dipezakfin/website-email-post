@@ -25,6 +25,46 @@ APP_DIR = core.APP_DIR
 JOBS = shell.JobManager(app_name=core.APP_NAME)
 _STATE = {'overrides': {}}
 
+GITHUB_REPO = 'dipezakfin/website-email-post'
+# Μόνο οι μεταβλητές που πραγματικά χρησιμοποιεί το check-mail.yml ως
+# secrets - π.χ. το LOG_FILE_PATH είναι hardcoded στο workflow, δεν είναι
+# secret.
+GITHUB_SECRET_KEYS = {
+    'WEBSITE_PLATFORM', 'WEBSITE_URL',
+    'WEBSITE_POST_EMAIL_IMAP_SERVER', 'WEBSITE_POST_EMAIL_IMAP_PORT',
+    'WEBSITE_POST_EMAIL_USERNAME', 'WEBSITE_POST_EMAIL_PASSWORD',
+    'WEBSITE_POST_HTTPS_PORT', 'WEBSITE_POST_API_TOKEN', 'WEBSITE_POST_CATEGORY_ID',
+    'WEBSITE_POST_MEDIA_ADAPTER_IMAGES', 'WEBSITE_POST_MEDIA_ADAPTER_DOCS', 'WEBSITE_POST_MEDIA_SUBPATH',
+    'WEBSITE_POST_WHITELIST_EMAIL_ADDRESSES', 'WEBSITE_POST_DEFAULT_STATUS', 'WEBSITE_POST_DEFAULT_FEATURED',
+    'WEBSITE_POST_IMAGE_MAX_WIDTH', 'WEBSITE_POST_IMAGE_JPEG_QUALITY', 'WEBSITE_POST_DRY_RUN',
+}
+
+
+def _sync_github_secrets(values: dict) -> dict:
+    """Καλεί `gh secret set` για κάθε τιμή που αντιστοιχεί σε γνωστό secret
+    του workflow. Απαιτεί το `gh` CLI εγκατεστημένο/συνδεδεμένο στον
+    υπολογιστή που τρέχει το GUI - αν αποτύχει, δεν μπλοκάρει το τοπικό
+    .env save, απλά αναφέρεται ξεχωριστά."""
+    import shutil
+    import subprocess
+
+    if shutil.which('gh') is None:
+        return {'available': False, 'updated': [], 'failed': [], 'message': 'Το gh CLI δεν βρέθηκε σε αυτόν τον υπολογιστή'}
+
+    updated, failed = [], []
+    for key, value in values.items():
+        if key not in GITHUB_SECRET_KEYS:
+            continue
+        try:
+            result = subprocess.run(
+                ['gh', 'secret', 'set', key, '--repo', GITHUB_REPO],
+                input=str(value), capture_output=True, text=True, timeout=30,
+            )
+            (updated if result.returncode == 0 else failed).append(key)
+        except Exception:
+            failed.append(key)
+    return {'available': True, 'updated': updated, 'failed': failed}
+
 
 def _get_config(request_overrides: dict | None = None) -> dict:
     core.load_dotenv_files()  # ξαναδιαβάζει το .env σε κάθε κλήση
@@ -62,7 +102,9 @@ def _api_settings_save_env(_req):
             set_key(str(env_file), key, str(value))
     _STATE['overrides'] = {}
     core.load_dotenv_files()
-    return jsonify({'ok': True, 'file': str(env_file)})
+
+    github = _sync_github_secrets({k: v for k, v in body.items() if isinstance(k, str)})
+    return jsonify({'ok': True, 'file': str(env_file), 'github': github})
 
 
 def _api_run_check_mail(_req):
@@ -228,8 +270,9 @@ __HEAD_SCRIPT__
 
   <div class="row" style="margin-top:10px">
     <button class="success" onclick="saveSettingsToEnv(this)">💾 Αποθήκευση στο .env</button>
-    <span id="settings_save_result" class="hint"></span>
+    <span class="hint">Ενημερώνει αυτόματα και τα GitHub Secrets (χρειάζεται συνδεδεμένο gh CLI)</span>
   </div>
+  <div class="row"><span id="settings_save_result" class="hint"></span></div>
 </div>
 
 <div class="panel active" id="panel-run">
@@ -316,8 +359,22 @@ function saveCfg() { return api('config/set', _collectSettings()); }
 
 function saveSettingsToEnv(btn) {
   withLoading(btn, api('settings/save-env', _collectSettings())).then(r => {
-    document.getElementById('settings_save_result').textContent =
-      r.ok ? ('✓ Αποθηκεύτηκε στο ' + r.file) : ('✗ ' + (r.message || 'Σφάλμα'));
+    const el = document.getElementById('settings_save_result');
+    if (!r.ok) {
+      el.textContent = '✗ ' + (r.message || 'Σφάλμα');
+      return;
+    }
+    let msg = '✓ Αποθηκεύτηκε στο ' + r.file;
+    const gh = r.github || {};
+    if (!gh.available) {
+      msg += ' — ⚠ GitHub Secrets ΔΕΝ ενημερώθηκαν (' + (gh.message || 'gh CLI μη διαθέσιμο') + ')';
+    } else {
+      msg += ' — GitHub Secrets: ✓ ' + (gh.updated || []).length + ' ενημερώθηκαν';
+      if ((gh.failed || []).length) {
+        msg += ', ✗ απέτυχαν: ' + gh.failed.join(', ');
+      }
+    }
+    el.textContent = msg;
   });
 }
 

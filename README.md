@@ -242,10 +242,25 @@ python website-email-post.py --dry-run   # δοκιμή, χωρίς πραγμα
 - **Ρυθμίσεις**: όλες οι `WEBSITE_POST_*`/`WEBSITE_URL`/`WEBSITE_PLATFORM`
   τιμές περνάνε ως **GitHub Actions Secrets** (Settings → Secrets and
   variables → Actions, στο repo `dipezakfin/website-email-post`) — mirror
-  του κεντρικού `dashboard/.env`. Αν αλλάξεις κάτι στο `.env` (π.χ. νέο API
-  token), πρέπει να ενημερώσεις **και** το αντίστοιχο GitHub Secret
-  χειροκίνητα (`gh secret set ΟΝΟΜΑ --repo dipezakfin/website-email-post`),
-  δεν συγχρονίζονται αυτόματα.
+  του κεντρικού `dashboard/.env`.
+  - **Από το GUI**: το κουμπί "💾 Αποθήκευση στο .env" (tab Ρυθμίσεις)
+    ενημερώνει **αυτόματα και τα δύο** — το τοπικό `.env` **και** τα
+    αντίστοιχα GitHub Secrets (μέσω `gh` CLI, που πρέπει να είναι
+    εγκατεστημένο και συνδεδεμένο ως ο λογαριασμός `dipezakfin` στον
+    υπολογιστή που τρέχει το GUI). Το αποτέλεσμα εμφανίζεται δίπλα στο
+    κουμπί (πόσα secrets ενημερώθηκαν/απέτυχαν).
+  - **Χειροκίνητα** (π.χ. αν αλλάξεις κάτι απευθείας στο `.env` με editor,
+    ή δεν έχεις πρόσβαση στο GUI):
+    ```
+    gh secret set ΟΝΟΜΑ_ΜΕΤΑΒΛΗΤΗΣ --repo dipezakfin/website-email-post
+    ```
+    (θα ζητήσει την τιμή interactive, ή δώσ' την μέσω pipe:
+    `echo "τιμή" | gh secret set ΟΝΟΜΑ --repo dipezakfin/website-email-post`)
+
+    Ή μέσω browser: [github.com/dipezakfin/website-email-post/settings/secrets/actions](https://github.com/dipezakfin/website-email-post/settings/secrets/actions)
+    → βρες το secret στη λίστα → **Update** → νέα τιμή → **Update secret**.
+    Τα secrets δεν εμφανίζονται ποτέ ξανά μετά την αποθήκευση, μόνο
+    αντικατάσταση.
 - **Log**: το `logs/post_log.csv` **δεν** γίνεται commit πίσω στο repo —
   περιέχει πραγματικά emails αποστολέων/θέματα, και το git history είναι
   μόνιμο (ακόμα κι αν διαγραφεί αργότερα το αρχείο, παραμένει σε παλιά
