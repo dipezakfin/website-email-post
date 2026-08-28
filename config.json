@@ -1,0 +1,15 @@
+{
+  "name": "Website Email Post",
+  "description": "Αναρτά αυτόματα emails ως άρθρα Joomla (κείμενο, εικόνες, συνημμένα, YouTube, tags)",
+  "version": "1.0.0",
+  "main_script": "website-email-post.py",
+  "gui_script": "website-email-post-gui.py",
+  "log_file": "website-email-post.log",
+  "port": 5049,
+  "order": 1,
+  "group": "Βοηθητικά",
+  "parameters": [
+    {"name": "dry-run", "type": "boolean", "description": "Δοκιμαστική λειτουργία, χωρίς πραγματική ανάρτηση", "default": false},
+    {"name": "debug", "type": "boolean", "description": "Debug logging", "default": false}
+  ]
+}

@@ -3,9 +3,9 @@
 Διαβάζει νέα emails από ένα κοινό Gmail mailbox και τα δημοσιεύει
 αυτόματα ως άρθρα σε site Joomla (μέσω του Joomla Web Services API).
 
-Σχεδιασμένο να τρέχει **περιοδικά μέσω Windows Task Scheduler** (όχι σαν
-συνεχής υπηρεσία) — κάθε φορά που εκτελείται, διαβάζει τα μη-αναγνωσμένα
-μηνύματα, τα δημοσιεύει, και τερματίζει.
+Ενσωματωμένο στο κεντρικό dashboard (`dashboard/apps/website-email-post/`) —
+ίδιο pattern με τα υπόλοιπα apps: κεντρικό `.env`, κοινό GUI shell (dark
+mode, tabs, live progress/pause/stop), tile στο κεντρικό dashboard.py.
 
 ## Πώς λειτουργεί
 
@@ -26,7 +26,8 @@
    `WEBSITE_POST_DEFAULT_STATUS`).
 5. Μετακινεί το email σε φάκελο `Processed` (επιτυχία) ή `Failed` (σφάλμα) στο
    mailbox, ώστε να μην ξανα-επεξεργαστεί στο επόμενο run.
-6. Καταγράφει κάθε ενέργεια σε CSV log (`WEBSITE_POST_LOG_FILE_PATH`).
+6. Καταγράφει κάθε ενέργεια σε CSV log (`WEBSITE_POST_LOG_FILE_PATH`,
+   default `logs/post_log.csv`) — εμφανίζεται και στο tab "Έλεγχος Mail" του GUI.
 
 ## Σύμβαση email
 
@@ -47,16 +48,14 @@
 **Συνημμένα:** Εικόνες μπαίνουν μέσα στο άρθρο· οποιοδήποτε άλλο αρχείο μπαίνει
 ως link στο τέλος.
 
-## Εγκατάσταση
+## Ρυθμίσεις
 
-```
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-copy .env.example .env
-```
-
-Συμπλήρωσε το `.env` με τα πραγματικά στοιχεία (βλ. σχόλια μέσα στο αρχείο).
+Όλες οι ρυθμίσεις διαβάζονται από το **κεντρικό** `dashboard/.env` (πρόθεμα
+`WEBSITE_POST_*`, συν `WEBSITE_URL`/`WEBSITE_PLATFORM`) — όχι από τοπικό
+`.env` μέσα στο app folder. Πιο εύκολος τρόπος να τις δεις/αλλάξεις: άνοιξε το
+GUI (tile "Website Email Post" στο κεντρικό dashboard, ή standalone βλ.
+παρακάτω) → tab **"⚙ Ρυθμίσεις"** → επεξεργασία πεδίων → **"💾 Αποθήκευση στο
+.env"**. Οι αλλαγές γράφονται κατευθείαν στο κεντρικό `dashboard/.env`.
 
 ### Gmail στοιχεία
 
@@ -64,19 +63,19 @@ copy .env.example .env
 - Χρειάζεται **App Password** (όχι το κανονικό password του λογαριασμού):
   Google Account → **Security** → ενεργοποίησε **2-Step Verification** αν δεν
   είναι ήδη → **App passwords** → δημιούργησε ένα νέο (π.χ. όνομα
-  "website-email-post") και βάλε το 16-χαρακτήρων αποτέλεσμα στο
-  `WEBSITE_POST_EMAIL_PASSWORD`.
+  "website-email-post") και βάλε το 16-χαρακτήρων αποτέλεσμα στο πεδίο
+  Password/App Password.
 - Συνιστάται ξεχωριστός Gmail λογαριασμός αφιερωμένος μόνο σε αυτή τη
   λειτουργία, όχι προσωπικός λογαριασμός κανενός.
 
 ### Joomla στοιχεία
 
-- **API Token**: Users → Manage → επιλογή χρήστη → tab "API Token" → Generate.
-  Ο χρήστης πρέπει να έχει δικαίωμα δημιουργίας άρθρων στην κατηγορία-στόχο.
+- **API Token**: Users → Manage → επιλογή χρήστη → tab "Joomla API Token" →
+  Generate. Ο χρήστης πρέπει να είναι στην ομάδα **Super Users** (βλ. §4
+  παρακάτω) και να έχει δικαίωμα δημιουργίας άρθρων στην κατηγορία-στόχο.
 - **Category ID**: Content → Categories, το ID φαίνεται στη λίστα/στο URL επεξεργασίας.
-- **Media adapters**: Content → Media → Settings → Adapters — επιβεβαίωσε τα
-  ονόματα adapters που θα χρησιμοποιηθούν για εικόνες/έγγραφα και βάλτα στο
-  `.env` (`WEBSITE_POST_MEDIA_ADAPTER_IMAGES`, `WEBSITE_POST_MEDIA_ADAPTER_DOCS`).
+- **Media adapters**: `GET /api/index.php/v1/media/adapters` δίνει τα
+  πραγματικά ids (π.χ. `local-images`, `local-files`).
 
 ## Server / Joomla ρυθμίσεις που χρειάστηκαν (dipe.zak.sch.gr)
 
@@ -110,8 +109,7 @@ should be whitelisted"` — ανεξάρτητα από token/headers, με βά
 
 **Λύση:** στο hosting control panel του site (screen "Apache & nginx Settings
 for dipe.zak.sch.gr") → ενότητα **"Deny access to the site"** → προστέθηκε
-**exclude/whitelist** για το static IP του Windows server που τρέχει το
-script.
+**exclude/whitelist** για το static IP του Windows server που τρέχει το app.
 
 > ⚠️ Αν το IP του server αλλάξει ποτέ (π.χ. αλλαγή σύνδεσης/παρόχου), το API
 > θα ξαναμπλοκαριστεί μέχρι να ενημερωθεί η λίστα σε αυτή τη σελίδα.
@@ -195,30 +193,50 @@ base64-encoded hash (`sha256:cost:hash`) όταν αποκωδικοποιηθε
   το ξαναδημιουργήσεις (→ 400 `"Another Tag has the same alias"`). Λύση:
   `?page[limit]=100` και client-side match στο title.
 
+## Χρήση
+
+### Μέσα από το κεντρικό dashboard
+
+Tile "Website Email Post" στο κεντρικό dashboard.py → κλικ ανοίγει το GUI
+(tabs: Ρυθμίσεις / Έλεγχος Mail / Βοήθεια).
+
+### Standalone GUI
+
+```
+cd dashboard\apps\website-email-post
+python website-email-post-gui.py --standalone
+```
+Ανοίγει browser στο `http://127.0.0.1:5049/`.
+
+### CLI (headless — ό,τι τρέχει και το Windows Task Scheduler)
+
+```
+cd dashboard\apps\website-email-post
+python website-email-post.py
+python website-email-post.py --dry-run   # δοκιμή, χωρίς πραγματική ανάρτηση/μετακίνηση
+```
+
 ### Πρώτη δοκιμή (χωρίς να δημιουργηθούν πραγματικά άρθρα)
 
-Βάλε `WEBSITE_POST_DRY_RUN=YES` στο `.env`, στείλε ένα δοκιμαστικό email, και
-τρέξε:
-```
-python script.py
-```
-Έλεγξε την κονσόλα/το log για να επιβεβαιώσεις ότι το mail διαβάζεται και
-μορφοποιείται σωστά, πριν ενεργοποιήσεις πραγματικές αναρτήσεις
-(`WEBSITE_POST_DRY_RUN=NO`).
+Ενεργοποίησε το toggle **DRY RUN** στο tab Ρυθμίσεις (ή `--dry-run` στο CLI),
+στείλε ένα δοκιμαστικό email, και τρέξε έναν έλεγχο (κουμπί "📧 Έλεγχος mail
+τώρα" στο GUI, ή το CLI). Έλεγξε το log για να επιβεβαιώσεις ότι το mail
+διαβάζεται και μορφοποιείται σωστά, πριν ενεργοποιήσεις πραγματικές
+αναρτήσεις.
 
-> Σημείωση: σε `DRY_RUN` mode τα emails **δεν** μετακινούνται σε
-> Processed/Failed, ώστε να μπορείς να ξανατρέξεις το script στο ίδιο μήνυμα.
+> Σημείωση: σε DRY RUN mode τα emails **δεν** μετακινούνται σε
+> Processed/Failed, ώστε να μπορείς να ξανατρέξεις τον έλεγχο στο ίδιο μήνυμα.
 
-## Windows Task Scheduler
+## Windows Task Scheduler (περιοδική εκτέλεση)
 
 1. Task Scheduler → Create Task.
 2. **General**: "Run whether user is logged on or not", "Run with highest privileges".
 3. **Triggers**: New → Begin the task "On a schedule" → Repeat task every
    `10 minutes`, for a duration of `Indefinitely`.
 4. **Actions**: New → Start a program:
-   - Program/script: `C:\path\to\website-email-post\.venv\Scripts\python.exe`
-   - Add arguments: `script.py`
-   - Start in: `C:\path\to\website-email-post`
+   - Program/script: `python` (ή το πλήρες path στο python.exe που χρησιμοποιεί το dashboard)
+   - Add arguments: `website-email-post.py`
+   - Start in: `D:\dipezakfin\dashboard\apps\website-email-post`
 5. **Settings**: ενεργοποίησε "If the task is already running, do not start a
    new instance" (ώστε να μην τρέχουν παράλληλα δύο runs).
 
@@ -228,11 +246,15 @@ CSV αρχείο (`WEBSITE_POST_LOG_FILE_PATH`, default `logs/post_log.csv`) μ�
 στήλες: `timestamp, email_from, email_subject, status,
 joomla_article_id, attachments_count, error_message`.
 
-`status` ∈ `POSTED`, `SKIPPED_NOT_WHITELISTED`, `ERROR`.
+`status` ∈ `POSTED`, `SKIPPED_NOT_WHITELISTED`, `ERROR`. Το tab "Έλεγχος Mail"
+του GUI δείχνει τις τελευταίες 50 γραμμές.
+
+Ξεχωριστά, το `website-email-post.log` (μορφή `RunLogger`) είναι αυτό που
+διαβάζει το tile status στο κεντρικό dashboard.py.
 
 ## Ασφάλεια
 
-- Το `.env` **δεν** ανεβαίνει ποτέ στο repo (`.gitignore`).
+- Το `.env` (κεντρικό, `dashboard/.env`) **δεν** ανεβαίνει ποτέ στο repo.
 - Χρησιμοποιείται ξεχωριστός/κοινός mailbox — όχι προσωπικός λογαριασμός
   κανενός. Η πρόσβαση σε ανάρτηση ελέγχεται αποκλειστικά μέσω
   `WEBSITE_POST_WHITELIST_EMAIL_ADDRESSES` (email του αποστολέα), όχι μέσω
