@@ -100,6 +100,25 @@ def _api_recent_log(_req):
     return jsonify({'rows': rows})
 
 
+def _api_list_folder_messages(req):
+    folder = request.args.get('folder', 'Processed')
+    rows = core.list_folder_messages(_get_config(), folder)
+    return jsonify({'rows': rows})
+
+
+def _api_reprocess(req):
+    body = _json_body()
+    folder = body.get('folder', 'Processed')
+    uid = body.get('uid', '')
+    config = _get_config()
+
+    def target(logger, control, progress_cb):
+        return core.reprocess_message(config, logger, folder, uid, core.cfg_bool(config, core.PREFIX + 'DRY_RUN', False))
+
+    job_id = JOBS.start(target)
+    return jsonify({'ok': True, 'job_id': job_id})
+
+
 _API_HANDLERS = {
     'config': _api_config_get,
     'config/set': _api_config_set,
@@ -110,6 +129,8 @@ _API_HANDLERS = {
     'job/resume': _api_job_resume,
     'job/stop': _api_job_stop,
     'recent-log': _api_recent_log,
+    'list-folder-messages': _api_list_folder_messages,
+    'reprocess': _api_reprocess,
 }
 
 
@@ -228,6 +249,23 @@ __HEAD_SCRIPT__
       </table>
     </div>
   </fieldset>
+
+  <fieldset><legend>Επανεπεξεργασία μηνύματος</legend>
+    <span class="hint">Ξανατρέχει ένα μήνυμα που είναι ήδη σε Processed/Failed — π.χ. μετά από ένα bugfix, χωρίς να χρειάζεται να ξανασταλεί το email. Δημιουργεί ΝΕΟ άρθρο, δεν ενημερώνει το προηγούμενο.</span>
+    <div class="row"><label>Φάκελος</label>
+      <select id="reprocess_folder" onchange="loadFolderMessages()">
+        <option value="Processed">Processed</option>
+        <option value="Failed">Failed</option>
+      </select>
+      <button type="button" onclick="loadFolderMessages()" title="Ανανέωση λίστας">🔄</button>
+    </div>
+    <div class="row"><label>Μήνυμα</label>
+      <select id="reprocess_uid" style="width:500px"></select>
+    </div>
+    <div class="row">
+      <button class="success" onclick="reprocessMessage(this)">🔁 Επανεπεξεργασία</button>
+    </div>
+  </fieldset>
 </div>
 
 __HELP_PANEL__
@@ -320,6 +358,33 @@ function runCheckMail(btn) {
   });
 }
 
+function loadFolderMessages() {
+  const folder = val('reprocess_folder');
+  const sel = document.getElementById('reprocess_uid');
+  sel.innerHTML = '<option>...φόρτωση...</option>';
+  api('list-folder-messages?folder=' + encodeURIComponent(folder)).then(r => {
+    const rows = r.rows || [];
+    sel.innerHTML = rows.length
+      ? rows.map(m => `<option value="${m.uid}">${m.date || ''} — ${m.from || ''} — ${m.subject || ''}</option>`).join('')
+      : '<option value="">(κανένα μήνυμα)</option>';
+  });
+}
+
+function reprocessMessage(btn) {
+  const folder = val('reprocess_folder');
+  const uid = val('reprocess_uid');
+  if (!uid) { alert('Επίλεξε πρώτα ένα μήνυμα'); return; }
+  withLoading(btn, api('reprocess', {folder: folder, uid: uid})).then(r => {
+    if (r.ok) {
+      CURRENT_JOB_ID = r.job_id;
+      JOB_ACTIVE = true;
+      document.getElementById('pause_btn').style.display = '';
+      document.getElementById('stop_btn').style.display = '';
+      pollJob();
+    }
+  });
+}
+
 function pauseResumeJob(btn) {
   if (!CURRENT_JOB_ID) return;
   const isPausing = btn.textContent.indexOf('Παύση') !== -1;
@@ -392,6 +457,7 @@ function showTab(id) {
 initTabs();
 loadSettings();
 loadRecentLog();
+loadFolderMessages();
 updateThemeToggleIcon();
 </script>
 </body>

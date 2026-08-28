@@ -400,14 +400,14 @@ def ensure_folder(imap_conn, folder_name):
         imap_conn.create(folder_name)
 
 
-def move_message(imap_conn, msg_uid, destination_folder):
+def move_message(imap_conn, msg_uid, destination_folder, source_folder='INBOX'):
     """msg_uid: IMAP UID (stable across mid-session mailbox mutations),
     NOT a sequence number - sequence numbers can silently shift when other
     messages in the same loop get moved/expunged earlier in the same run,
     which caused fetches for later messages to return garbage."""
-    imap_conn.select('INBOX')
+    imap_conn.select(source_folder)
     ensure_folder(imap_conn, destination_folder)
-    imap_conn.select('INBOX')
+    imap_conn.select(source_folder)
 
     status, response = imap_conn.uid('COPY', msg_uid, destination_folder)
     if status != 'OK':
@@ -416,6 +416,82 @@ def move_message(imap_conn, msg_uid, destination_folder):
     status, response = imap_conn.uid('STORE', msg_uid, '+FLAGS', '\\Deleted')
     if status != 'OK':
         raise RuntimeError(f'IMAP STORE (\\Deleted) failed: {response}')
+
+
+def _open_imap(config: dict):
+    imap_conn = imaplib.IMAP4_SSL(cfg(config, PREFIX + 'EMAIL_IMAP_SERVER'), int(cfg(config, PREFIX + 'EMAIL_IMAP_PORT', '993')))
+    imap_conn.login(cfg(config, PREFIX + 'EMAIL_USERNAME'), cfg(config, PREFIX + 'EMAIL_PASSWORD'))
+    return imap_conn
+
+
+def list_folder_messages(config: dict, folder: str, limit: int = 50) -> list[dict]:
+    """Πιο πρόσφατα πρώτα. Χρησιμοποιείται από το GUI για να επιλέξεις ένα
+    μήνυμα από Processed/Failed προς επανεπεξεργασία."""
+    imap_conn = _open_imap(config)
+    status, _ = imap_conn.select(folder)
+    if status != 'OK':
+        imap_conn.logout()
+        return []
+
+    status, data = imap_conn.uid('SEARCH', None, 'ALL')
+    if status != 'OK':
+        imap_conn.logout()
+        return []
+
+    uids = data[0].split()[-limit:][::-1]
+    results = []
+    for uid in uids:
+        status, hdr = imap_conn.uid('FETCH', uid, '(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])')
+        if status != 'OK' or not hdr or not isinstance(hdr[0], tuple):
+            continue
+        msg = email.message_from_bytes(hdr[0][1])
+        results.append({
+            'uid': uid.decode(),
+            'subject': decode_mime_words(msg.get('Subject', '')),
+            'from': parseaddr(msg.get('From', ''))[1],
+            'date': msg.get('Date', ''),
+        })
+    imap_conn.logout()
+    return results
+
+
+def reprocess_message(config: dict, logger: RunLogger, folder: str, uid: str, dry_run: bool) -> dict:
+    """Ξανατρέχει process_message() πάνω σε ένα μήνυμα που βρίσκεται ήδη σε
+    Processed/Failed - χρήσιμο μετά από ένα bugfix, χωρίς να χρειάζεται να
+    ξαναστείλει κανείς το ίδιο email. ΠΡΟΣΟΧΗ: δημιουργεί ΝΕΟ άρθρο στο
+    Joomla - δεν ενημερώνει/αντικαθιστά το προηγούμενο, αφού δεν υπάρχει
+    σύνδεση email <-> article id."""
+    imap_conn = _open_imap(config)
+    status, _ = imap_conn.select(folder)
+    if status != 'OK':
+        imap_conn.logout()
+        logger.log(f'Ο φάκελος {folder} δεν βρέθηκε', 'ERROR')
+        return {'ok': False, 'exit_code': 1}
+
+    status, msg_data = imap_conn.uid('FETCH', uid, '(BODY.PEEK[])')
+    if status != 'OK' or not msg_data or not isinstance(msg_data[0], tuple):
+        imap_conn.logout()
+        logger.log(f'Δεν βρέθηκε το μήνυμα uid={uid} στο φάκελο {folder}', 'ERROR')
+        return {'ok': False, 'exit_code': 1}
+    raw_email = msg_data[0][1]
+
+    try:
+        result = process_message(config, raw_email, logger, dry_run)
+    except Exception as exc:
+        logger.log(f'ΣΦΑΛΜΑ επανεπεξεργασίας: {exc}', 'ERROR')
+        imap_conn.logout()
+        return {'ok': False, 'exit_code': 1}
+
+    if folder == FAILED_FOLDER and result == 'posted' and not dry_run:
+        try:
+            move_message(imap_conn, uid, PROCESSED_FOLDER, source_folder=FAILED_FOLDER)
+            imap_conn.expunge()
+            logger.log(f'Μετακινήθηκε από {FAILED_FOLDER} σε {PROCESSED_FOLDER}')
+        except Exception as move_exc:
+            logger.log(f'Απέτυχε η μετακίνηση: {move_exc}', 'WARN')
+
+    imap_conn.logout()
+    return {'ok': True, 'exit_code': 0, 'result': result}
 
 
 def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: bool):
