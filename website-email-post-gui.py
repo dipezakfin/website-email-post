@@ -213,6 +213,11 @@ __COMMON_CSS__
 .postlog-table td.status-POSTED { color: #4caf50; }
 .postlog-table td.status-ERROR { color: #f44336; }
 .postlog-table td.status-SKIPPED_NOT_WHITELISTED { color: #999; }
+.email-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.email-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 6px 3px 10px;
+  border-radius: 999px; border: 1px solid var(--btn-border); background: var(--btn-bg); color: var(--btn-fg); font-size: 13px; }
+.email-chip .remove { cursor: pointer; font-weight: bold; opacity: 0.7; padding: 0 3px; border-radius: 50%; }
+.email-chip .remove:hover { opacity: 1; background: var(--accent); color: #fff; }
 </style>
 __HEAD_SCRIPT__
 </head>
@@ -232,7 +237,10 @@ __HEAD_SCRIPT__
   </fieldset>
 
   <fieldset><legend>Joomla / Ιστότοπος</legend>
-    <div class="row"><label>Platform</label><input id="cfg_WEBSITE_PLATFORM" style="width:120px" onchange="saveCfg()">
+    <div class="row"><label>Πλατφόρμα</label>
+      <select id="cfg_WEBSITE_PLATFORM" onchange="saveCfg()">
+        <option value="joomla">Joomla</option>
+      </select>
       <span class="hint">Μόνο "joomla" υποστηρίζεται προς το παρόν</span></div>
     <div class="row"><label>Website URL</label><input id="cfg_WEBSITE_URL" style="width:320px" onchange="saveCfg()"></div>
     <div class="row"><label>HTTPS Port</label><input id="cfg_WEBSITE_POST_HTTPS_PORT" style="width:100px" onchange="saveCfg()"></div>
@@ -244,8 +252,17 @@ __HEAD_SCRIPT__
   </fieldset>
 
   <fieldset><legend>Έλεγχος πρόσβασης &amp; Δημοσίευση</legend>
-    <div class="row"><label>Εγκεκριμένοι αποστολείς</label><input id="cfg_WEBSITE_POST_WHITELIST_EMAIL_ADDRESSES" style="width:500px" onchange="saveCfg()">
-      <span class="hint">emails χωρισμένα με κόμμα</span></div>
+    <div class="row"><label>Εγκεκριμένοι αποστολείς</label>
+      <div style="flex:1">
+        <div class="email-chips" id="whitelist_chips"></div>
+        <div style="margin-top:6px">
+          <input id="whitelist_new_email" placeholder="email@example.gr" style="width:260px"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();addWhitelistEmail();}">
+          <button type="button" onclick="addWhitelistEmail()">➕ Προσθήκη</button>
+        </div>
+      </div>
+      <input type="hidden" id="cfg_WEBSITE_POST_WHITELIST_EMAIL_ADDRESSES">
+    </div>
     <div class="row"><label>Κατάσταση άρθρου</label>
       <select id="cfg_WEBSITE_POST_DEFAULT_STATUS" onchange="saveCfg()">
         <option value="DRAFT">DRAFT</option>
@@ -324,11 +341,37 @@ const TABS = [
 ];
 let JOB_ACTIVE = false;
 let CURRENT_JOB_ID = null;
+let WHITELIST_EMAILS = [];
 
 function val(id) { const el = document.getElementById(id); return el ? el.value : ''; }
 function setVal(id, v) { const el = document.getElementById(id); if (el) el.value = (v === undefined || v === null) ? '' : v; }
 function checked(id) { const el = document.getElementById(id); return el ? el.checked : false; }
 function setChecked(id, v) { const el = document.getElementById(id); if (el) el.checked = String(v).trim().toUpperCase() === 'YES'; }
+
+function renderWhitelistChips() {
+  document.getElementById('whitelist_chips').innerHTML = WHITELIST_EMAILS.map((email, i) =>
+    `<span class="email-chip">${email}<span class="remove" onclick="removeWhitelistEmail(${i})" title="Αφαίρεση">×</span></span>`
+  ).join('');
+  setVal('cfg_WEBSITE_POST_WHITELIST_EMAIL_ADDRESSES', WHITELIST_EMAILS.join(','));
+}
+
+function addWhitelistEmail() {
+  const input = document.getElementById('whitelist_new_email');
+  const email = input.value.trim();
+  if (!email) return;
+  if (!WHITELIST_EMAILS.includes(email)) {
+    WHITELIST_EMAILS.push(email);
+    renderWhitelistChips();
+    saveCfg();
+  }
+  input.value = '';
+}
+
+function removeWhitelistEmail(index) {
+  WHITELIST_EMAILS.splice(index, 1);
+  renderWhitelistChips();
+  saveCfg();
+}
 
 function _collectSettings() {
   return {
@@ -393,7 +436,8 @@ function loadSettings() {
     setVal('cfg_WEBSITE_POST_MEDIA_ADAPTER_IMAGES', c.WEBSITE_POST_MEDIA_ADAPTER_IMAGES || 'local-images');
     setVal('cfg_WEBSITE_POST_MEDIA_ADAPTER_DOCS', c.WEBSITE_POST_MEDIA_ADAPTER_DOCS || 'local-files');
     setVal('cfg_WEBSITE_POST_MEDIA_SUBPATH', c.WEBSITE_POST_MEDIA_SUBPATH || 'mail-posts');
-    setVal('cfg_WEBSITE_POST_WHITELIST_EMAIL_ADDRESSES', c.WEBSITE_POST_WHITELIST_EMAIL_ADDRESSES);
+    WHITELIST_EMAILS = String(c.WEBSITE_POST_WHITELIST_EMAIL_ADDRESSES || '').split(',').map(s => s.trim()).filter(Boolean);
+    renderWhitelistChips();
     setVal('cfg_WEBSITE_POST_DEFAULT_STATUS', c.WEBSITE_POST_DEFAULT_STATUS || 'DRAFT');
     setChecked('cfg_WEBSITE_POST_DEFAULT_FEATURED', c.WEBSITE_POST_DEFAULT_FEATURED || 'NO');
     setVal('cfg_WEBSITE_POST_IMAGE_MAX_WIDTH', c.WEBSITE_POST_IMAGE_MAX_WIDTH || '1600');
