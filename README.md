@@ -8,7 +8,7 @@
 mode, tabs, live progress/pause/stop), tile στο κεντρικό dashboard.py.
 
 **Η πραγματική, συνεχής (24/7) εκτέλεση γίνεται μέσω GitHub Actions**
-(`.github/workflows/check-mail.yml`, κάθε 10 λεπτά) — όχι μέσω του τοπικού
+(`.github/workflows/check-mail.yml`, κάθε 5 λεπτά) — όχι μέσω του τοπικού
 Windows server, αφού αυτός δεν μένει πάντα ανοιχτός. Το τοπικό GUI/CLI
 παραμένει διαθέσιμο για χειροκίνητους ελέγχους, testing, και reprocess. Βλ.
 ενότητα "GitHub Actions" παρακάτω.
@@ -236,7 +236,7 @@ python website-email-post.py --dry-run   # δοκιμή, χωρίς πραγμα
 ## GitHub Actions (η πραγματική 24/7 εκτέλεση)
 
 `.github/workflows/check-mail.yml` τρέχει το `website-email-post.py`
-**αυτούσιο, χωρίς καμία αλλαγή**, κάθε 10 λεπτά, σε GitHub-hosted runner —
+**αυτούσιο, χωρίς καμία αλλαγή**, κάθε 5 λεπτά, σε GitHub-hosted runner —
 δουλεύει ανεξάρτητα από το αν είναι ανοιχτός ο τοπικός υπολογιστής.
 
 - **Ρυθμίσεις**: όλες οι `WEBSITE_POST_*`/`WEBSITE_URL`/`WEBSITE_PLATFORM`
