@@ -7,6 +7,12 @@
 ίδιο pattern με τα υπόλοιπα apps: κεντρικό `.env`, κοινό GUI shell (dark
 mode, tabs, live progress/pause/stop), tile στο κεντρικό dashboard.py.
 
+**Η πραγματική, συνεχής (24/7) εκτέλεση γίνεται μέσω GitHub Actions**
+(`.github/workflows/check-mail.yml`, κάθε 10 λεπτά) — όχι μέσω του τοπικού
+Windows server, αφού αυτός δεν μένει πάντα ανοιχτός. Το τοπικό GUI/CLI
+παραμένει διαθέσιμο για χειροκίνητους ελέγχους, testing, και reprocess. Βλ.
+ενότητα "GitHub Actions" παρακάτω.
+
 ## Πώς λειτουργεί
 
 1. Συνδέεται στο mailbox μέσω IMAP και διαβάζει τα μη-αναγνωσμένα μηνύματα.
@@ -227,7 +233,35 @@ python website-email-post.py --dry-run   # δοκιμή, χωρίς πραγμα
 > Σημείωση: σε DRY RUN mode τα emails **δεν** μετακινούνται σε
 > Processed/Failed, ώστε να μπορείς να ξανατρέξεις τον έλεγχο στο ίδιο μήνυμα.
 
-## Windows Task Scheduler (περιοδική εκτέλεση)
+## GitHub Actions (η πραγματική 24/7 εκτέλεση)
+
+`.github/workflows/check-mail.yml` τρέχει το `website-email-post.py`
+**αυτούσιο, χωρίς καμία αλλαγή**, κάθε 10 λεπτά, σε GitHub-hosted runner —
+δουλεύει ανεξάρτητα από το αν είναι ανοιχτός ο τοπικός υπολογιστής.
+
+- **Ρυθμίσεις**: όλες οι `WEBSITE_POST_*`/`WEBSITE_URL`/`WEBSITE_PLATFORM`
+  τιμές περνάνε ως **GitHub Actions Secrets** (Settings → Secrets and
+  variables → Actions, στο repo `dipezakfin/website-email-post`) — mirror
+  του κεντρικού `dashboard/.env`. Αν αλλάξεις κάτι στο `.env` (π.χ. νέο API
+  token), πρέπει να ενημερώσεις **και** το αντίστοιχο GitHub Secret
+  χειροκίνητα (`gh secret set ΟΝΟΜΑ --repo dipezakfin/website-email-post`),
+  δεν συγχρονίζονται αυτόματα.
+- **Log**: το `logs/post_log.csv` γίνεται commit πίσω στο repo μετά από κάθε
+  run που βρήκε/επεξεργάστηκε μηνύματα (ώστε να μην χάνεται το ιστορικό σε
+  κάθε φρέσκο runner) — commit message `[skip ci]` ώστε να μην ξαναπυροδοτεί
+  τίποτα.
+- **Χειροκίνητο τρέξιμο**: Actions tab στο GitHub repo → "Check mail and
+  post to Joomla" → "Run workflow", ή `gh workflow run check-mail.yml --repo dipezakfin/website-email-post`.
+- **Concurrency**: αν ένα run είναι ακόμα σε εξέλιξη όταν πυροδοτήσει το
+  επόμενο scheduled, το νέο μπαίνει σε ουρά (δεν τρέχουν ποτέ δύο ταυτόχρονα).
+- Το GitHub Actions cron δεν εγγυάται ακριβές timing σε φορτωμένες περιόδους
+  (μπορεί να καθυστερήσει λίγα λεπτά) — αποδεκτό για αυτή τη χρήση.
+
+## Windows Task Scheduler (εναλλακτικό, τοπικό — προαιρετικό)
+
+Χρήσιμο μόνο αν κάποια στιγμή ο υπολογιστής **μένει πάντα ανοιχτός** και
+θέλεις επιπλέον/εναλλακτικό τοπικό trigger. Δεν χρειάζεται για την κανονική
+λειτουργία, αφού αυτή καλύπτεται ήδη από το GitHub Actions.
 
 1. Task Scheduler → Create Task.
 2. **General**: "Run whether user is logged on or not", "Run with highest privileges".
