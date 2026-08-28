@@ -1,0 +1,53 @@
+name: Check mail and post to Joomla
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: check-mail
+  cancel-in-progress: false
+
+jobs:
+  check-mail:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install -r requirements.txt
+
+      - name: Έλεγχος mail και ανάρτηση στο Joomla
+        env:
+          WEBSITE_PLATFORM: ${{ secrets.WEBSITE_PLATFORM }}
+          WEBSITE_URL: ${{ secrets.WEBSITE_URL }}
+          WEBSITE_POST_EMAIL_IMAP_SERVER: ${{ secrets.WEBSITE_POST_EMAIL_IMAP_SERVER }}
+          WEBSITE_POST_EMAIL_IMAP_PORT: ${{ secrets.WEBSITE_POST_EMAIL_IMAP_PORT }}
+          WEBSITE_POST_EMAIL_USERNAME: ${{ secrets.WEBSITE_POST_EMAIL_USERNAME }}
+          WEBSITE_POST_EMAIL_PASSWORD: ${{ secrets.WEBSITE_POST_EMAIL_PASSWORD }}
+          WEBSITE_POST_HTTPS_PORT: ${{ secrets.WEBSITE_POST_HTTPS_PORT }}
+          WEBSITE_POST_API_TOKEN: ${{ secrets.WEBSITE_POST_API_TOKEN }}
+          WEBSITE_POST_CATEGORY_ID: ${{ secrets.WEBSITE_POST_CATEGORY_ID }}
+          WEBSITE_POST_MEDIA_ADAPTER_IMAGES: ${{ secrets.WEBSITE_POST_MEDIA_ADAPTER_IMAGES }}
+          WEBSITE_POST_MEDIA_ADAPTER_DOCS: ${{ secrets.WEBSITE_POST_MEDIA_ADAPTER_DOCS }}
+          WEBSITE_POST_MEDIA_SUBPATH: ${{ secrets.WEBSITE_POST_MEDIA_SUBPATH }}
+          WEBSITE_POST_WHITELIST_EMAIL_ADDRESSES: ${{ secrets.WEBSITE_POST_WHITELIST_EMAIL_ADDRESSES }}
+          WEBSITE_POST_DEFAULT_STATUS: ${{ secrets.WEBSITE_POST_DEFAULT_STATUS }}
+          WEBSITE_POST_DEFAULT_FEATURED: ${{ secrets.WEBSITE_POST_DEFAULT_FEATURED }}
+          WEBSITE_POST_IMAGE_MAX_WIDTH: ${{ secrets.WEBSITE_POST_IMAGE_MAX_WIDTH }}
+          WEBSITE_POST_IMAGE_JPEG_QUALITY: ${{ secrets.WEBSITE_POST_IMAGE_JPEG_QUALITY }}
+          WEBSITE_POST_LOG_FILE_PATH: logs/post_log.csv
+          WEBSITE_POST_DRY_RUN: ${{ secrets.WEBSITE_POST_DRY_RUN }}
+        run: python website-email-post.py
+
+      - name: Commit ενημερωμένο CSV log
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f logs/post_log.csv
+          git diff --cached --quiet || git commit -m "Ενημέρωση post_log.csv [skip ci]"
+          git push
