@@ -205,6 +205,22 @@ base64-encoded hash (`sha256:cost:hash`) όταν αποκωδικοποιηθε
   ψάχνεις tag πέρα από τα πρώτα 20, δεν θα το βρεις και θα προσπαθήσεις να
   το ξαναδημιουργήσεις (→ 400 `"Another Tag has the same alias"`). Λύση:
   `?page[limit]=100` και client-side match στο title.
+- `GET /content/articles?filter[category_id]=X` χρειάζεται `page[limit]`
+  (όχι `list[limit]`) για να περιορίσει τα αποτελέσματα — το `list[limit]`
+  αγνοείται σιωπηλά (επιστρέφει πάντα 20, ανεξαρτήτως τιμής).
+- **`PATCH /content/articles/{id}` αγνοεί σιωπηλά το πεδίο `articletext`**
+  (αυτό δουλεύει μόνο σε `POST`/create). Για να αλλάξεις το σώμα ενός
+  ήδη υπάρχοντος άρθρου, στείλε ξεχωριστά τα πραγματικά DB πεδία:
+  `introtext` (το κείμενο πριν το Read More) και `fulltext` (το κείμενο
+  μετά) — αν το άρθρο δεν έχει Read More marker, βάλε όλο το κείμενο σε
+  `introtext` και `fulltext: ""`. Αν στείλεις μόνο `articletext`, το
+  PATCH επιστρέφει 200 αλλά **δεν αλλάζει τίποτα** — παραπλανητικό, δεν
+  δίνει κανένα σφάλμα.
+- `PATCH` μπορεί να αποτύχει με 400
+  `"Check-out failed... does not match the user who checked out"` ακόμα
+  κι όταν το `GET` δείχνει `checked_out: null` — λύση: System →
+  Maintenance → Global Check-in στο admin (ή απλά άνοιξε/κλείσε το
+  άρθρο στο admin UI).
 
 ## Χρήση
 
