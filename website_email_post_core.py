@@ -390,6 +390,43 @@ def joomla_create_article(config: dict, title, body_html, tag_ids, featured, dry
     return resp.json()['data']['id']
 
 
+def joomla_list_recent_articles(config: dict, limit: int = 10) -> list[dict]:
+    """Πιο πρόσφατα πρώτα, μέσα στην ίδια κατηγορία-στόχο - χρησιμοποιείται
+    από το GUI (panel "Άρθρα") και το Telegram bot για publish/unpublish."""
+    category_id = int(cfg(config, PREFIX + 'CATEGORY_ID', '0'))
+    url = f'{joomla_base_url(config)}/content/articles'
+    params = {
+        'filter[category_id]': category_id,
+        'page[limit]': limit,
+        'list[fullordering]': 'a.created DESC',
+    }
+    resp = requests.get(url, headers=joomla_headers(config), params=params, timeout=30)
+    resp.raise_for_status()
+    items = resp.json().get('data', [])
+    return [
+        {
+            'id': item['id'],
+            'title': item['attributes'].get('title', ''),
+            'state': item['attributes'].get('state', 0),
+            'created': item['attributes'].get('created', ''),
+        }
+        for item in items
+    ]
+
+
+def joomla_set_article_state(config: dict, article_id, published: bool) -> dict:
+    url = f'{joomla_base_url(config)}/content/articles/{article_id}'
+    resp = requests.patch(
+        url,
+        headers=joomla_headers(config, {'Content-Type': 'application/json'}),
+        json={'state': 1 if published else 0},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    attrs = resp.json()['data']['attributes']
+    return {'id': attrs.get('id'), 'title': attrs.get('title'), 'state': attrs.get('state')}
+
+
 # ---------------------------------------------------------------------------
 # IMAP
 # ---------------------------------------------------------------------------
