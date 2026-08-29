@@ -1,0 +1,33 @@
+name: Telegram bot - publish/unpublish
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: telegram-bot
+  cancel-in-progress: false
+
+jobs:
+  telegram-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install -r requirements.txt
+
+      - name: Έλεγχος Telegram για εντολές
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALLOWED_CHAT_IDS: ${{ secrets.TELEGRAM_ALLOWED_CHAT_IDS }}
+          WEBSITE_PLATFORM: ${{ secrets.WEBSITE_PLATFORM }}
+          WEBSITE_URL: ${{ secrets.WEBSITE_URL }}
+          WEBSITE_POST_HTTPS_PORT: ${{ secrets.WEBSITE_POST_HTTPS_PORT }}
+          WEBSITE_POST_API_TOKEN: ${{ secrets.WEBSITE_POST_API_TOKEN }}
+          WEBSITE_POST_CATEGORY_ID: ${{ secrets.WEBSITE_POST_CATEGORY_ID }}
+        run: python telegram_bot.py
