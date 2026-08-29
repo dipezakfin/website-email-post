@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from email.header import decode_header
 from email.utils import parseaddr
 from pathlib import Path
+from urllib.parse import quote
 
 import requests
 from PIL import Image, ImageOps
@@ -353,17 +354,23 @@ def joomla_upload_media(config: dict, filename: str, file_bytes: bytes, adapter:
     )
     resp.raise_for_status()
     attrs = resp.json()['data']['attributes']
+    actual_path = attrs.get('path', '')  # e.g. "local-files:/mail-posts/actual-name.xlsx"
 
     public_url = attrs.get('thumb_path')
     if not public_url:
         # Non-image uploads don't get a thumb_path back - build the public
-        # URL ourselves. Assumes the Joomla convention of adapter id
-        # "local-<foldername>" mapping to the "<foldername>/" public path
-        # (e.g. "local-files" -> /files/, "local-images" -> /images/).
+        # URL ourselves. Uses the actual returned path, NOT the filename we
+        # sent: Joomla transliterates Greek (and possibly other) filenames
+        # when saving (e.g. "ΜΟΡΙΑ.xlsx" -> "MORIA.xlsx"), so a URL built
+        # from our original filename 404s. Assumes the Joomla convention of
+        # adapter id "local-<foldername>" mapping to the "<foldername>/"
+        # public path (e.g. "local-files" -> /files/, "local-images" -> /images/).
         public_folder = adapter.removeprefix('local-')
-        public_url = f'{website_url}/{public_folder}/{subpath}/{filename}'
+        _, _, relative_path = actual_path.partition(':')
+        encoded_path = '/'.join(quote(part) for part in relative_path.strip('/').split('/'))
+        public_url = f'{website_url}/{public_folder}/{encoded_path}'
 
-    return attrs.get('path'), public_url
+    return actual_path, public_url
 
 
 def joomla_get_or_create_tag_id(config: dict, tag_name: str):
