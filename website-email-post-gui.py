@@ -336,19 +336,20 @@ __HEAD_SCRIPT__
   </fieldset>
 
   <fieldset><legend>Επανεπεξεργασία μηνύματος</legend>
-    <span class="hint">Ξανατρέχει ένα μήνυμα που είναι ήδη σε Processed/Failed — π.χ. μετά από ένα bugfix, χωρίς να χρειάζεται να ξανασταλεί το email. Δημιουργεί ΝΕΟ άρθρο, δεν ενημερώνει το προηγούμενο.</span>
+    <span class="hint">Ξανατρέχει ένα μήνυμα που είναι ήδη σε Processed/Skipped/Failed — π.χ. μετά από ένα bugfix ή αφού πρόσθεσες τον αποστολέα στη whitelist, χωρίς να χρειάζεται να ξανασταλεί το email. Δημιουργεί ΝΕΟ άρθρο (αν καταλήξει σε ανάρτηση), δεν ενημερώνει κάποιο προηγούμενο.</span>
     <div class="row"><label>Φάκελος</label>
       <select id="reprocess_folder" onchange="loadFolderMessages()">
-        <option value="Processed">Processed</option>
+        <option value="Skipped">Skipped (μη εγκεκριμένοι)</option>
         <option value="Failed">Failed</option>
+        <option value="Processed">Processed</option>
       </select>
       <button type="button" onclick="loadFolderMessages()" title="Ανανέωση λίστας">🔄</button>
     </div>
-    <div class="row"><label>Μήνυμα</label>
-      <select id="reprocess_uid" style="width:500px"></select>
-    </div>
-    <div class="row">
-      <button class="success" onclick="reprocessMessage(this)">🔁 Επανεπεξεργασία</button>
+    <div style="overflow-x:auto">
+      <table class="postlog-table" id="folder_messages_table">
+        <thead><tr><th>Ημ/νία</th><th>Από</th><th>Θέμα</th><th></th></tr></thead>
+        <tbody id="folder_messages_tbody"></tbody>
+      </table>
     </div>
   </fieldset>
 </div>
@@ -499,20 +500,22 @@ function runCheckMail(btn) {
 
 function loadFolderMessages() {
   const folder = val('reprocess_folder');
-  const sel = document.getElementById('reprocess_uid');
-  sel.innerHTML = '<option>...φόρτωση...</option>';
+  const tbody = document.getElementById('folder_messages_tbody');
+  tbody.innerHTML = '<tr><td colspan="4">...φόρτωση...</td></tr>';
   api('list-folder-messages?folder=' + encodeURIComponent(folder)).then(r => {
     const rows = r.rows || [];
-    sel.innerHTML = rows.length
-      ? rows.map(m => `<option value="${m.uid}">${m.date || ''} — ${m.from || ''} — ${m.subject || ''}</option>`).join('')
-      : '<option value="">(κανένα μήνυμα)</option>';
+    tbody.innerHTML = rows.length
+      ? rows.map(m => `<tr>
+          <td>${m.date || ''}</td>
+          <td>${m.from || ''}</td>
+          <td>${m.subject || ''}</td>
+          <td><button type="button" onclick="reprocessMessage(this, '${folder}', '${m.uid}')">🔁 Επανεπεξεργασία</button></td>
+        </tr>`).join('')
+      : '<tr><td colspan="4">(κανένα μήνυμα)</td></tr>';
   });
 }
 
-function reprocessMessage(btn) {
-  const folder = val('reprocess_folder');
-  const uid = val('reprocess_uid');
-  if (!uid) { alert('Επίλεξε πρώτα ένα μήνυμα'); return; }
+function reprocessMessage(btn, folder, uid) {
   withLoading(btn, api('reprocess', {folder: folder, uid: uid})).then(r => {
     if (r.ok) {
       CURRENT_JOB_ID = r.job_id;
@@ -556,6 +559,7 @@ function pollJob() {
       document.getElementById('pause_btn').style.display = 'none';
       document.getElementById('stop_btn').style.display = 'none';
       loadRecentLog();
+      loadFolderMessages();
     }
   });
 }

@@ -48,6 +48,7 @@ EXTRA_KEYS = ('WEBSITE_URL', 'WEBSITE_PLATFORM')
 
 PROCESSED_FOLDER = 'Processed'
 FAILED_FOLDER = 'Failed'
+SKIPPED_FOLDER = 'Skipped'
 
 LOG_COLUMNS = [
     'timestamp', 'email_from', 'email_subject', 'status',
@@ -521,10 +522,13 @@ def list_folder_messages(config: dict, folder: str, limit: int = 50) -> list[dic
 
 def reprocess_message(config: dict, logger: RunLogger, folder: str, uid: str, dry_run: bool) -> dict:
     """Ξανατρέχει process_message() πάνω σε ένα μήνυμα που βρίσκεται ήδη σε
-    Processed/Failed - χρήσιμο μετά από ένα bugfix, χωρίς να χρειάζεται να
-    ξαναστείλει κανείς το ίδιο email. ΠΡΟΣΟΧΗ: δημιουργεί ΝΕΟ άρθρο στο
-    Joomla - δεν ενημερώνει/αντικαθιστά το προηγούμενο, αφού δεν υπάρχει
-    σύνδεση email <-> article id."""
+    Processed/Failed/Skipped - χρήσιμο μετά από ένα bugfix, ή αφού
+    προστέθηκε ο αποστολέας στη whitelist, χωρίς να χρειάζεται να
+    ξαναστείλει κανείς το ίδιο email. Το μήνυμα μετακινείται αυτόματα στον
+    φάκελο που ταιριάζει στο νέο αποτέλεσμα (π.χ. Skipped -> Processed αν
+    δημοσιεύτηκε τελικά). ΠΡΟΣΟΧΗ: αν δημιουργηθεί άρθρο, είναι ΝΕΟ - δεν
+    ενημερώνει/αντικαθιστά κάποιο προηγούμενο, αφού δεν υπάρχει σύνδεση
+    email <-> article id."""
     imap_conn = _open_imap(config)
     status, _ = imap_conn.select(folder)
     if status != 'OK':
@@ -546,11 +550,12 @@ def reprocess_message(config: dict, logger: RunLogger, folder: str, uid: str, dr
         imap_conn.logout()
         return {'ok': False, 'exit_code': 1}
 
-    if folder == FAILED_FOLDER and result == 'posted' and not dry_run:
+    target_folder = PROCESSED_FOLDER if result == 'posted' else SKIPPED_FOLDER
+    if target_folder != folder and not dry_run:
         try:
-            move_message(imap_conn, uid, PROCESSED_FOLDER, source_folder=FAILED_FOLDER)
+            move_message(imap_conn, uid, target_folder, source_folder=folder)
             imap_conn.expunge()
-            logger.log(f'Μετακινήθηκε από {FAILED_FOLDER} σε {PROCESSED_FOLDER}')
+            logger.log(f'Μετακινήθηκε από {folder} σε {target_folder}')
         except Exception as move_exc:
             logger.log(f'Απέτυχε η μετακίνηση: {move_exc}', 'WARN')
 
@@ -708,12 +713,17 @@ def run_check_mail(config: dict, logger: RunLogger, control=None, progress_cb=No
             continue
 
         if not dry_run:
+            # Skipped (not-whitelisted) messages go to their own folder,
+            # separate from real posts - otherwise finding one to reprocess
+            # later (e.g. after adding the sender to the whitelist) means
+            # wading through every successfully posted message too.
+            target_folder = SKIPPED_FOLDER if result == 'skipped' else PROCESSED_FOLDER
             try:
-                move_message(imap_conn, msg_uid, PROCESSED_FOLDER)
+                move_message(imap_conn, msg_uid, target_folder)
             except Exception as move_exc:
-                # The article was already posted successfully - only the
+                # The message was already handled successfully - only the
                 # mailbox tidy-up failed. Not a processing error.
-                logger.log(f'Το άρθρο αναρτήθηκε αλλά απέτυχε η μετακίνηση στο {PROCESSED_FOLDER}: {move_exc}', 'WARN')
+                logger.log(f'Επεξεργάστηκε αλλά απέτυχε η μετακίνηση στο {target_folder}: {move_exc}', 'WARN')
 
         if progress_cb:
             progress_cb(i, len(msg_uids))
