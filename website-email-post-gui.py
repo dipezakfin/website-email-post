@@ -161,6 +161,25 @@ def _api_reprocess(req):
     return jsonify({'ok': True, 'job_id': job_id})
 
 
+def _api_list_articles(_req):
+    try:
+        rows = core.joomla_list_recent_articles(_get_config(), limit=15)
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+    return jsonify({'ok': True, 'rows': rows})
+
+
+def _api_set_article_state(req):
+    body = _json_body()
+    article_id = body.get('id')
+    published = bool(body.get('published'))
+    try:
+        result = core.joomla_set_article_state(_get_config(), article_id, published)
+    except Exception as e:
+        return jsonify({'ok': False, 'message': str(e)}), 500
+    return jsonify({'ok': True, 'article': result})
+
+
 _API_HANDLERS = {
     'config': _api_config_get,
     'config/set': _api_config_set,
@@ -173,6 +192,8 @@ _API_HANDLERS = {
     'recent-log': _api_recent_log,
     'list-folder-messages': _api_list_folder_messages,
     'reprocess': _api_reprocess,
+    'list-articles': _api_list_articles,
+    'set-article-state': _api_set_article_state,
 }
 
 
@@ -328,6 +349,17 @@ __HEAD_SCRIPT__
   </fieldset>
 </div>
 
+<div class="panel" id="panel-articles">
+  <fieldset><legend>Πρόσφατα άρθρα <button type="button" onclick="loadArticles()" title="Ανανέωση">🔄</button></legend>
+    <div style="overflow-x:auto">
+      <table class="postlog-table" id="articles_table">
+        <thead><tr><th>Ημ/νία</th><th>Τίτλος</th><th>Κατάσταση</th><th></th></tr></thead>
+        <tbody id="articles_tbody"></tbody>
+      </table>
+    </div>
+  </fieldset>
+</div>
+
 __HELP_PANEL__
 
 <script>
@@ -337,7 +369,7 @@ __HELP_JS__
 helpLoadInfo();
 
 const TABS = [
-  ['settings', 'Ρυθμίσεις'], ['run', 'Έλεγχος Mail'], ['help', 'Βοήθεια'],
+  ['settings', 'Ρυθμίσεις'], ['run', 'Έλεγχος Mail'], ['articles', 'Άρθρα'], ['help', 'Βοήθεια'],
 ];
 let JOB_ACTIVE = false;
 let CURRENT_JOB_ID = null;
@@ -537,6 +569,30 @@ function loadRecentLog() {
   });
 }
 
+function loadArticles() {
+  const tbody = document.getElementById('articles_tbody');
+  tbody.innerHTML = '<tr><td colspan="4">...φόρτωση...</td></tr>';
+  api('list-articles').then(r => {
+    if (!r.ok) { tbody.innerHTML = `<tr><td colspan="4" class="error">✗ ${r.message || 'Σφάλμα'}</td></tr>`; return; }
+    tbody.innerHTML = (r.rows || []).map(a => {
+      const published = a.state === 1;
+      return `<tr>
+        <td>${a.created || ''}</td>
+        <td>${a.title || ''}</td>
+        <td class="${published ? 'status-POSTED' : ''}">${published ? 'Published' : 'Draft/Unpublished'}</td>
+        <td><button type="button" onclick="toggleArticleState(this, ${a.id}, ${!published})">${published ? '📝 Unpublish' : '📢 Publish'}</button></td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="4">(κανένα άρθρο)</td></tr>';
+  });
+}
+
+function toggleArticleState(btn, id, publish) {
+  withLoading(btn, api('set-article-state', {id: id, published: publish})).then(r => {
+    if (!r.ok) { alert('Σφάλμα: ' + (r.message || '')); return; }
+    loadArticles();
+  });
+}
+
 function initTabs() {
   const bar = document.getElementById('tabs');
   TABS.forEach(([id, label], i) => {
@@ -559,6 +615,7 @@ initTabs();
 loadSettings();
 loadRecentLog();
 loadFolderMessages();
+loadArticles();
 updateThemeToggleIcon();
 </script>
 </body>
