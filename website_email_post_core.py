@@ -293,6 +293,26 @@ def build_attachments_html(uploaded_files):
     return f'<h4>Συνημμένα αρχεία</h4>\n<ul>\n{items}\n</ul>'
 
 
+READMORE_MARKER = '<hr id="system-readmore" />'
+
+
+def insert_readmore_marker(html: str, after_paragraphs: int) -> str:
+    """Εισάγει το ίδιο marker που βάζει το κουμπί "Read more" του Joomla
+    editor, μετά την Ν-οστή παράγραφο (`</p>`) - όχι μέτρηση λέξεων, ώστε
+    να μη ρισκάρουμε να κόψουμε ένα HTML tag στη μέση. Αν το κείμενο έχει
+    λιγότερες παραγράφους από όσες ζητήθηκαν, δεν μπαίνει καθόλου marker
+    (όλο το άρθρο θα φαίνεται σαν intro - ασφαλές fallback)."""
+    if after_paragraphs <= 0:
+        return html
+    pos = 0
+    for _ in range(after_paragraphs):
+        idx = html.find('</p>', pos)
+        if idx == -1:
+            return html
+        pos = idx + len('</p>')
+    return html[:pos] + READMORE_MARKER + html[pos:]
+
+
 # ---------------------------------------------------------------------------
 # Joomla API
 # ---------------------------------------------------------------------------
@@ -556,6 +576,9 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
 
     body_html, images, other_files = get_body_and_attachments(msg)
     body_html = embed_youtube_links(body_html)
+
+    readmore_after = int(cfg(config, PREFIX + 'READMORE_AFTER_PARAGRAPHS', '0'))
+    body_html = insert_readmore_marker(body_html, readmore_after)
 
     # Unique per-message prefix so attachments with common names (e.g. two
     # different "Πρόσκληση.pdf") never collide in the shared media folder.
