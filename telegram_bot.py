@@ -34,7 +34,9 @@ HELP_TEXT = (
     'Εντολές:\n'
     '/list — λίστα πρόσφατων άρθρων με κουμπιά Publish/Unpublish\n'
     '/publishlast — δημοσίευση του πιο πρόσφατου άρθρου\n'
-    '/unpublishlast — απόσυρση (unpublish) του πιο πρόσφατου άρθρου'
+    '/unpublishlast — απόσυρση (unpublish) του πιο πρόσφατου άρθρου\n'
+    '/publish <id> — δημοσίευση συγκεκριμένου άρθρου (π.χ. /publish 1773)\n'
+    '/unpublish <id> — απόσυρση συγκεκριμένου άρθρου (π.χ. /unpublish 1773)'
 )
 
 
@@ -81,6 +83,20 @@ def handle_publish_last(config, chat_id, publish):
     send_message(chat_id, f'✅ Το άρθρο "{result["title"]}" {verb}.')
 
 
+def handle_publish_by_id(config, chat_id, publish, arg_text):
+    article_id = arg_text.strip()
+    if not article_id.isdigit():
+        send_message(chat_id, f'Χρήση: /{"publish" if publish else "unpublish"} <id>\nπ.χ. /{"publish" if publish else "unpublish"} 1773')
+        return
+    try:
+        result = core.joomla_set_article_state(config, article_id, publish)
+    except Exception as e:
+        send_message(chat_id, f'✗ Σφάλμα: {e}')
+        return
+    verb = 'δημοσιεύτηκε' if publish else 'έγινε unpublish'
+    send_message(chat_id, f'✅ Το άρθρο "{result["title"]}" (id={article_id}) {verb}.')
+
+
 def handle_callback(config, callback_query):
     chat_id = callback_query['message']['chat']['id']
     message_id = callback_query['message']['message_id']
@@ -120,13 +136,24 @@ def process_update(config, update):
         send_message(chat_id, 'Δεν είσαι εξουσιοδοτημένος χρήστης αυτού του bot.')
         return
 
-    if text.startswith('/list'):
+    # Tokenized (όχι startswith chains) ώστε /publish να μη ταιριάζει
+    # κατά λάθος και με /publishlast. Το @botusername suffix (εμφανίζεται
+    # σε group chats) αφαιρείται πριν τη σύγκριση.
+    parts = text.split(maxsplit=1)
+    command = parts[0].split('@', 1)[0].lower() if parts else ''
+    arg = parts[1] if len(parts) > 1 else ''
+
+    if command == '/list':
         handle_list(config, chat_id)
-    elif text.startswith('/publishlast'):
+    elif command == '/publishlast':
         handle_publish_last(config, chat_id, True)
-    elif text.startswith('/unpublishlast'):
+    elif command == '/unpublishlast':
         handle_publish_last(config, chat_id, False)
-    elif text.startswith('/start') or text.startswith('/help'):
+    elif command == '/publish':
+        handle_publish_by_id(config, chat_id, True, arg)
+    elif command == '/unpublish':
+        handle_publish_by_id(config, chat_id, False, arg)
+    elif command in ('/start', '/help'):
         send_message(chat_id, HELP_TEXT)
     else:
         send_message(chat_id, 'Άγνωστη εντολή.\n\n' + HELP_TEXT)
