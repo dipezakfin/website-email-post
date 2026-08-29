@@ -283,6 +283,32 @@ python website-email-post.py --dry-run   # δοκιμή, χωρίς πραγμα
   ήδη στο ταχύτερο δυνατό). Για αλλαγή, επεξεργάσου απευθείας τη γραμμή
   `cron:` στο `.github/workflows/check-mail.yml`.
 
+## Telegram bot — γρήγορο publish/unpublish
+
+`telegram_bot.py` + `.github/workflows/telegram-bot.yml` (ίδιο pattern με
+το `check-mail.yml`: polling κάθε 5 λεπτά, GitHub-hosted runner). Δεν
+χρειάζεται να ανοίξεις το GUI/dashboard — απλά στέλνεις μήνυμα στο bot.
+
+**Εντολές:**
+- `/list` — λίστα πρόσφατων άρθρων, το καθένα με inline κουμπιά
+  📢 Publish / 📝 Unpublish (καμία πληκτρολόγηση ID)
+- `/publishlast` / `/unpublishlast` — άμεση ενέργεια στο πιο πρόσφατο άρθρο
+- `/publish <id>` / `/unpublish <id>` — συγκεκριμένο άρθρο (π.χ. `/publish 1773`)
+
+**Ρύθμιση (μία φορά):**
+1. Telegram → μίλα στο **@BotFather** → `/newbot` → πάρε το token
+2. `gh secret set TELEGRAM_BOT_TOKEN --repo dipezakfin/website-email-post`
+3. Στείλε ένα οποιοδήποτε μήνυμα στο καινούριο bot, μετά βρες το chat_id
+   σου μέσω `https://api.telegram.org/bot<TOKEN>/getUpdates`
+   (πεδίο `message.chat.id`)
+4. `gh secret set TELEGRAM_ALLOWED_CHAT_IDS --repo dipezakfin/website-email-post`
+   (comma-separated αν θες να εξουσιοδοτήσεις παραπάνω από έναν λογαριασμό)
+
+Μόνο τα chat ids στο `TELEGRAM_ALLOWED_CHAT_IDS` γίνονται δεκτά — οποιοσδήποτε
+άλλος παίρνει ευγενική άρνηση. Καθόλου δικό μας persisted state για το
+ποια Telegram updates έχουν ήδη επεξεργαστεί — χρησιμοποιείται το δικό
+του server-side offset mechanism του Telegram (getUpdates).
+
 ## Windows Task Scheduler (εναλλακτικό, τοπικό — προαιρετικό)
 
 Χρήσιμο μόνο αν κάποια στιγμή ο υπολογιστής **μένει πάντα ανοιχτός** και
