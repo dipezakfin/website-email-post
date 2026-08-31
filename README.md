@@ -36,11 +36,14 @@ Windows server, αφού αυτός δεν μένει πάντα ανοιχτό�
      plugin στο site που να το κάνει αυτό αυτόματα — ελέγχθηκαν και τα
      170 plugins, μόνο το χειροκίνητο κουμπί του editor υπάρχει.
 4. Δημοσιεύει το άρθρο μέσω του Joomla API (ως draft ή published, ανάλογα με
-   `WEBSITE_POST_DEFAULT_STATUS`). Αν `WEBSITE_POST_NOTIFY_TELEGRAM=YES`
-   και/ή υπάρχουν emails στο `WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES`,
-   στέλνεται ειδοποίηση με τον τίτλο και το **link του άρθρου** (Telegram
-   bot / Gmail SMTP με τα ίδια credentials του mailbox). Best-effort —
-   αν αποτύχει η ειδοποίηση δεν επηρεάζει την ανάρτηση, μόνο log WARN.
+   `WEBSITE_POST_DEFAULT_STATUS`).
+   **Ειδοποιήσεις** (αν `WEBSITE_POST_NOTIFY_TELEGRAM=YES` και/ή υπάρχουν
+   emails στο `WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES` — Telegram bot / Gmail
+   SMTP με τα ίδια credentials του mailbox, best-effort, ποτέ δεν
+   μπλοκάρουν την ίδια την επεξεργασία) σε τρεις περιπτώσεις:
+   - ✅ Επιτυχής ανάρτηση — τίτλος + **link του άρθρου**
+   - ⚠️ Μη εγκεκριμένος αποστολέας προσπάθησε να ποστάρει
+   - ❌ Σφάλμα επεξεργασίας μηνύματος
 5. Μετακινεί το email σε φάκελο `Processed` (αναρτήθηκε), `Skipped` (μη
    εγκεκριμένος αποστολέας) ή `Failed` (σφάλμα) στο mailbox, ώστε να μην
    ξανα-επεξεργαστεί στο επόμενο run. Το `Skipped` είναι ξεχωριστό από το
