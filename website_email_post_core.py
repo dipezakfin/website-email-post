@@ -297,7 +297,9 @@ def embed_youtube_links(html):
 def build_attachments_html(uploaded_files):
     if not uploaded_files:
         return ''
-    items = '\n'.join(f'<li><a href="{url}">{name}</a></li>' for name, url in uploaded_files)
+    items = '\n'.join(
+        f'<li><a href="{url}" target="_blank" rel="noopener">{name}</a></li>' for name, url in uploaded_files
+    )
     return f'<h4>Συνημμένα αρχεία</h4>\n<ul>\n{items}\n</ul>'
 
 
