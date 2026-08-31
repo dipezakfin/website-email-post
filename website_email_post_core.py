@@ -563,6 +563,66 @@ def reprocess_message(config: dict, logger: RunLogger, folder: str, uid: str, dr
     return {'ok': True, 'exit_code': 0, 'result': result}
 
 
+def article_frontend_url(config: dict, article_id) -> str:
+    website_url = cfg(config, 'WEBSITE_URL', '').rstrip('/')
+    # Δουλεύει πάντα, ανεξάρτητα από SEF routing/menu assignment - δεν
+    # χρειάζεται το άρθρο να είναι συνδεδεμένο με κάποιο menu item.
+    return f'{website_url}/index.php?option=com_content&view=article&id={article_id}'
+
+
+def send_telegram_notification(text: str) -> None:
+    token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+    chat_ids = [c.strip() for c in os.environ.get('TELEGRAM_ALLOWED_CHAT_IDS', '').split(',') if c.strip()]
+    if not token or not chat_ids:
+        return
+    for chat_id in chat_ids:
+        requests.post(
+            f'https://api.telegram.org/bot{token}/sendMessage',
+            json={'chat_id': chat_id, 'text': text},
+            timeout=15,
+        )
+
+
+def send_email_notification(config: dict, subject: str, body: str, recipients: list[str]) -> None:
+    import smtplib
+    from email.mime.text import MIMEText
+
+    username = cfg(config, PREFIX + 'EMAIL_USERNAME')
+    password = cfg(config, PREFIX + 'EMAIL_PASSWORD')
+    if not username or not password or not recipients:
+        return
+
+    msg = MIMEText(body)
+    msg['Subject'] = subject
+    msg['From'] = username
+    msg['To'] = ', '.join(recipients)
+
+    with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as server:
+        server.starttls()
+        server.login(username, password)
+        server.sendmail(username, recipients, msg.as_string())
+
+
+def send_post_notifications(config: dict, logger: RunLogger, title: str, article_id) -> None:
+    """Best-effort - ποτέ δεν πρέπει να ρίξει το process_message()
+    αφού το άρθρο ήδη δημιουργήθηκε επιτυχώς."""
+    article_url = article_frontend_url(config, article_id)
+    text = f'📢 Νέα ανάρτηση: "{title}"\n{article_url}'
+
+    if cfg_bool(config, PREFIX + 'NOTIFY_TELEGRAM', False):
+        try:
+            send_telegram_notification(text)
+        except Exception as e:
+            logger.log(f'Απέτυχε ειδοποίηση Telegram: {e}', 'WARN')
+
+    notify_emails = [e.strip() for e in cfg(config, PREFIX + 'NOTIFY_EMAIL_ADDRESSES', '').split(',') if e.strip()]
+    if notify_emails:
+        try:
+            send_email_notification(config, f'Νέα ανάρτηση: {title}', text, notify_emails)
+        except Exception as e:
+            logger.log(f'Απέτυχε ειδοποίηση email: {e}', 'WARN')
+
+
 def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: bool):
     msg = email.message_from_bytes(raw_email)
     sender_name, sender_email = parseaddr(msg.get('From', ''))
@@ -624,6 +684,10 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
     article_id = joomla_create_article(config, title, full_body, tag_ids, featured, dry_run)
     logger.log(f'Αναρτήθηκε άρθρο (id={article_id}): "{title}" από {sender_email}')
     log_row(config, sender_email, raw_subject, 'POSTED', article_id, len(images) + len(other_files))
+
+    if not dry_run:
+        send_post_notifications(config, logger, title, article_id)
+
     return 'posted'
 
 

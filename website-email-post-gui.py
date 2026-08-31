@@ -38,6 +38,7 @@ GITHUB_SECRET_KEYS = {
     'WEBSITE_POST_WHITELIST_EMAIL_ADDRESSES', 'WEBSITE_POST_DEFAULT_STATUS', 'WEBSITE_POST_DEFAULT_FEATURED',
     'WEBSITE_POST_IMAGE_MAX_WIDTH', 'WEBSITE_POST_IMAGE_JPEG_QUALITY', 'WEBSITE_POST_DRY_RUN',
     'WEBSITE_POST_READMORE_AFTER_PARAGRAPHS',
+    'WEBSITE_POST_NOTIFY_TELEGRAM', 'WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES',
 }
 
 
@@ -302,6 +303,13 @@ __HEAD_SCRIPT__
     <div class="row"><label>Ποιότητα JPEG (%)</label><input type="number" id="cfg_WEBSITE_POST_IMAGE_JPEG_QUALITY" style="width:100px" onchange="saveCfg()"></div>
   </fieldset>
 
+  <fieldset><legend>Ειδοποιήσεις ανάρτησης</legend>
+    <div class="row"><label>Ειδοποίηση στο Telegram</label><label class="switch"><input type="checkbox" id="cfg_WEBSITE_POST_NOTIFY_TELEGRAM" onchange="saveCfg()"><span class="slider"></span></label>
+      <span class="hint">χρησιμοποιεί το bot που ήδη έχεις ρυθμίσει (TELEGRAM_BOT_TOKEN/TELEGRAM_ALLOWED_CHAT_IDS)</span></div>
+    <div class="row"><label>Ειδοποίηση σε emails</label><input id="cfg_WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES" style="width:400px" onchange="saveCfg()">
+      <span class="hint">emails χωρισμένα με κόμμα, κενό = απενεργοποιημένο</span></div>
+  </fieldset>
+
   <fieldset><legend>Log &amp; Δοκιμή</legend>
     <div class="row"><label>CSV Log αρχείο</label><input id="cfg_WEBSITE_POST_LOG_FILE_PATH" style="width:400px" onchange="saveCfg()">
       <button type="button" title="Επιλογή αρχείου" onclick="browsePath('cfg_WEBSITE_POST_LOG_FILE_PATH','savefile','csv', () => saveCfg())">📁</button>
@@ -431,6 +439,8 @@ function _collectSettings() {
     WEBSITE_POST_READMORE_AFTER_PARAGRAPHS: val('cfg_WEBSITE_POST_READMORE_AFTER_PARAGRAPHS'),
     WEBSITE_POST_IMAGE_MAX_WIDTH: val('cfg_WEBSITE_POST_IMAGE_MAX_WIDTH'),
     WEBSITE_POST_IMAGE_JPEG_QUALITY: val('cfg_WEBSITE_POST_IMAGE_JPEG_QUALITY'),
+    WEBSITE_POST_NOTIFY_TELEGRAM: checked('cfg_WEBSITE_POST_NOTIFY_TELEGRAM') ? 'YES' : 'NO',
+    WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES: val('cfg_WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES'),
     WEBSITE_POST_LOG_FILE_PATH: val('cfg_WEBSITE_POST_LOG_FILE_PATH'),
     WEBSITE_POST_DRY_RUN: checked('cfg_WEBSITE_POST_DRY_RUN') ? 'YES' : 'NO',
   };
@@ -481,6 +491,8 @@ function loadSettings() {
     setVal('cfg_WEBSITE_POST_READMORE_AFTER_PARAGRAPHS', c.WEBSITE_POST_READMORE_AFTER_PARAGRAPHS || '0');
     setVal('cfg_WEBSITE_POST_IMAGE_MAX_WIDTH', c.WEBSITE_POST_IMAGE_MAX_WIDTH || '1600');
     setVal('cfg_WEBSITE_POST_IMAGE_JPEG_QUALITY', c.WEBSITE_POST_IMAGE_JPEG_QUALITY || '75');
+    setChecked('cfg_WEBSITE_POST_NOTIFY_TELEGRAM', c.WEBSITE_POST_NOTIFY_TELEGRAM || 'NO');
+    setVal('cfg_WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES', c.WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES);
     setVal('cfg_WEBSITE_POST_LOG_FILE_PATH', c.WEBSITE_POST_LOG_FILE_PATH || 'logs/post_log.csv');
     setChecked('cfg_WEBSITE_POST_DRY_RUN', c.WEBSITE_POST_DRY_RUN || 'NO');
   });
