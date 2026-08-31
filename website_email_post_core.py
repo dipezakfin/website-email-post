@@ -244,7 +244,13 @@ def resize_image(config: dict, raw_bytes: bytes) -> bytes:
 
 def sanitize_filename(name):
     name = re.sub(r'[^\w.\-]+', '_', name, flags=re.UNICODE)
-    return name.strip('_') or 'file'
+    # Joomla's media filter rejects filenames with consecutive dots (e.g.
+    # "Υ.Α..pdf" from an abbreviation right before the extension) as a
+    # possible double-extension attack ("Invalid path or file type not
+    # allowed", regardless of the actual extension being fine) - collapse
+    # them to one dot so a legitimate name never trips that check.
+    name = re.sub(r'\.{2,}', '.', name)
+    return name.strip('_.') or 'file'
 
 
 YOUTUBE_URL_RE = re.compile(
