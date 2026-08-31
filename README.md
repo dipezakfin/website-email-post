@@ -307,15 +307,57 @@ python website-email-post.py --dry-run   # δοκιμή, χωρίς πραγμα
   post to Joomla" → "Run workflow", ή `gh workflow run check-mail.yml --repo dipezakfin/website-email-post`.
 - **Concurrency**: αν ένα run είναι ακόμα σε εξέλιξη όταν πυροδοτήσει το
   επόμενο scheduled, το νέο μπαίνει σε ουρά (δεν τρέχουν ποτέ δύο ταυτόχρονα).
-- Το GitHub Actions cron δεν εγγυάται ακριβές timing σε φορτωμένες περιόδους
-  (μπορεί να καθυστερήσει λίγα λεπτά) — αποδεκτό για αυτή τη χρήση.
-- **Interval**: τρέχει κάθε **5 λεπτά** (`cron: '*/5 * * * *'` στο
-  `check-mail.yml`) — το ελάχιστο που υποστηρίζει το GitHub Actions για
-  scheduled workflows, δεν χωράει πιο συχνό. Δεν είναι ρύθμιση στο GUI
-  (θα σήμαινε το GUI να κάνει commit/push στο ίδιο το workflow αρχείο —
-  πολύ περισσότερη πολυπλοκότητα απ' ό,τι αξίζει, δεδομένου ότι είμαστε
-  ήδη στο ταχύτερο δυνατό). Για αλλαγή, επεξεργάσου απευθείας τη γραμμή
-  `cron:` στο `.github/workflows/check-mail.yml`.
+- ⚠️ **Το εσωτερικό `schedule:` trigger του GitHub Actions είναι "best
+  effort" — ΔΕΝ αξιόπιστο.** Παρατηρήθηκαν πραγματικά κενά **2-7+ ωρών**
+  ανάμεσα σε runs (όχι "λίγα λεπτά" καθυστέρηση όπως θα περίμενε κανείς),
+  ειδικά σε private repos με συχνό interval. Το `cron: '*/5 * * * *'`
+  παραμένει στα workflow αρχεία σαν αδύναμο fallback, αλλά η
+  **πραγματική, αξιόπιστη** εκτέλεση κάθε 5 λεπτά γίνεται μέσω
+  εξωτερικού trigger — βλ. παρακάτω.
+- **Interval**: 5 λεπτά — το ελάχιστο που υποστηρίζει το GitHub Actions
+  για scheduled workflows. Δεν είναι ρύθμιση στο GUI (θα σήμαινε το GUI
+  να κάνει commit/push στο ίδιο το workflow αρχείο). Για αλλαγή,
+  επεξεργάσου απευθείας τη γραμμή `cron:` σε κάθε workflow αρχείο.
+
+### Αξιόπιστο 5λεπτο interval: εξωτερικό trigger (cron-job.org)
+
+Αντί να βασιζόμαστε στο (αναξιόπιστο) `schedule:` trigger, ένα δωρεάν
+εξωτερικό cron service καλεί απευθείας το GitHub API
+(`workflow_dispatch`) κάθε 5 λεπτά — αυτό το path τρέχει σχεδόν άμεσα,
+χωρίς την υποβάθμιση προτεραιότητας του εσωτερικού scheduler.
+
+**Ρύθμιση (μία φορά):**
+
+1. **GitHub Personal Access Token** (fine-grained, μόνο για αυτό το repo):
+   [github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new)
+   → Resource owner: `dipezakfin` → Repository access: μόνο
+   `website-email-post` → Permissions → Actions: **Read and write** →
+   Generate.
+
+   > ⚠️ **Λήγει στις 31/8/2027.** Μετά χρειάζεται νέο token (ίδια
+   > βήματα) και ενημέρωση του header στο cron-job.org — τίποτα άλλο.
+
+2. Δωρεάν λογαριασμός: [console.cron-job.org/signup](https://console.cron-job.org/signup)
+   (το URL άλλαξε πρόσφατα από το παλιό `cron-job.org/en/signup/`)
+
+3. Δύο ξεχωριστά cronjobs (ένα ανά workflow), κάθε 5 λεπτά, `POST`:
+
+   | | check-mail | telegram-bot |
+   |---|---|---|
+   | URL | `.../actions/workflows/check-mail.yml/dispatches` | `.../actions/workflows/telegram-bot.yml/dispatches` |
+
+   Πλήρες URL: `https://api.github.com/repos/dipezakfin/website-email-post/actions/workflows/<αρχείο>/dispatches`
+
+   **Headers (και τα δύο cronjobs):**
+   ```
+   Authorization: Bearer <το PAT>
+   Accept: application/vnd.github+json
+   Content-Type: application/json
+   ```
+   **Body:** `{"ref":"master"}`
+
+Επιβεβαιώθηκε ότι δουλεύει: τα runs πλέον εμφανίζονται ως
+`workflow_dispatch` (όχι `schedule`) σε πραγματικά ~5λεπτα διαστήματα.
 
 ## Telegram bot — γρήγορο publish/unpublish
 
