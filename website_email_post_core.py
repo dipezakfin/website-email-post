@@ -603,12 +603,10 @@ def send_email_notification(config: dict, subject: str, body: str, recipients: l
         server.sendmail(username, recipients, msg.as_string())
 
 
-def send_post_notifications(config: dict, logger: RunLogger, title: str, article_id) -> None:
-    """Best-effort - ποτέ δεν πρέπει να ρίξει το process_message()
-    αφού το άρθρο ήδη δημιουργήθηκε επιτυχώς."""
-    article_url = article_frontend_url(config, article_id)
-    text = f'📢 Νέα ανάρτηση: "{title}"\n{article_url}'
-
+def send_notification(config: dict, logger: RunLogger, subject: str, text: str) -> None:
+    """Best-effort - ποτέ δεν πρέπει να ρίξει το process_message()/
+    run_check_mail() αφού καλείται ΜΕΤΑ το πραγματικό αποτέλεσμα
+    (ανάρτηση/skip/error), όχι πριν."""
     if cfg_bool(config, PREFIX + 'NOTIFY_TELEGRAM', False):
         try:
             send_telegram_notification(text)
@@ -618,9 +616,28 @@ def send_post_notifications(config: dict, logger: RunLogger, title: str, article
     notify_emails = [e.strip() for e in cfg(config, PREFIX + 'NOTIFY_EMAIL_ADDRESSES', '').split(',') if e.strip()]
     if notify_emails:
         try:
-            send_email_notification(config, f'Νέα ανάρτηση: {title}', text, notify_emails)
+            send_email_notification(config, subject, text, notify_emails)
         except Exception as e:
             logger.log(f'Απέτυχε ειδοποίηση email: {e}', 'WARN')
+
+
+def notify_posted(config: dict, logger: RunLogger, title: str, article_id) -> None:
+    article_url = article_frontend_url(config, article_id)
+    send_notification(config, logger, f'Νέα ανάρτηση: {title}', f'📢 Νέα ανάρτηση: "{title}"\n{article_url}')
+
+
+def notify_skipped(config: dict, logger: RunLogger, sender_email: str, subject: str) -> None:
+    send_notification(
+        config, logger, 'Μη εγκεκριμένος αποστολέας προσπάθησε να ποστάρει',
+        f'⚠️ Μη εγκεκριμένος αποστολέας προσπάθησε να ποστάρει:\nΑπό: {sender_email}\nΘέμα: {subject}',
+    )
+
+
+def notify_failed(config: dict, logger: RunLogger, sender_email: str, subject: str, error: str) -> None:
+    send_notification(
+        config, logger, 'Σφάλμα ανάρτησης',
+        f'❌ Σφάλμα επεξεργασίας μηνύματος:\nΑπό: {sender_email}\nΘέμα: {subject}\nΣφάλμα: {error}',
+    )
 
 
 def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: bool):
@@ -637,6 +654,8 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
     if sender_email not in whitelist:
         logger.log(f'Παράλειψη (μη εγκεκριμένος αποστολέας): {sender_email} - {raw_subject}', 'WARN')
         log_row(config, sender_email, raw_subject, 'SKIPPED_NOT_WHITELISTED')
+        if not dry_run:
+            notify_skipped(config, logger, sender_email, raw_subject)
         return 'skipped'
 
     default_featured = cfg_bool(config, PREFIX + 'DEFAULT_FEATURED', False)
@@ -686,7 +705,7 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
     log_row(config, sender_email, raw_subject, 'POSTED', article_id, len(images) + len(other_files))
 
     if not dry_run:
-        send_post_notifications(config, logger, title, article_id)
+        notify_posted(config, logger, title, article_id)
 
     return 'posted'
 
@@ -768,6 +787,7 @@ def run_check_mail(config: dict, logger: RunLogger, control=None, progress_cb=No
             logger.log(f'ΣΦΑΛΜΑ επεξεργασίας μηνύματος uid={msg_uid}: {exc}', 'ERROR')
             failed += 1
             if not dry_run:
+                notify_failed(config, logger, sender_email, subject, str(exc))
                 try:
                     move_message(imap_conn, msg_uid, FAILED_FOLDER)
                 except Exception as move_exc:
