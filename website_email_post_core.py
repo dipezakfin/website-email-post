@@ -648,6 +648,46 @@ def notify_failed(config: dict, logger: RunLogger, sender_email: str, subject: s
     )
 
 
+def reply_to_sender(config: dict, logger: RunLogger, original_msg, body_text: str) -> None:
+    """Best-effort auto-reply στον ΙΔΙΟ τον αποστολέα (όχι στη λίστα
+    ειδοποιήσεων διαχειριστή) - ώστε να μαθαίνει αν αναρτήθηκε/απέτυχε το
+    μήνυμά του χωρίς να χρειάζεται να ρωτήσει. Στέλνεται ως πραγματικό
+    reply (In-Reply-To/References) ώστε να μπει στο ίδιο thread. Gated
+    από WEBSITE_POST_REPLY_TO_SENDER - δεν στέλνεται για SKIPPED
+    (μη εγκεκριμένος αποστολέας), μόνο για posted/failed."""
+    if not cfg_bool(config, PREFIX + 'REPLY_TO_SENDER', False):
+        return
+
+    import smtplib
+    from email.mime.text import MIMEText
+
+    username = cfg(config, PREFIX + 'EMAIL_USERNAME')
+    password = cfg(config, PREFIX + 'EMAIL_PASSWORD')
+    sender_email = parseaddr(original_msg.get('From', ''))[1]
+    if not username or not password or not sender_email:
+        return
+
+    original_subject = decode_mime_words(original_msg.get('Subject', ''))
+    reply_subject = original_subject if original_subject.lower().startswith('re:') else f'Re: {original_subject}'
+
+    reply = MIMEText(body_text)
+    reply['Subject'] = reply_subject
+    reply['From'] = username
+    reply['To'] = sender_email
+    original_message_id = original_msg.get('Message-ID', '')
+    if original_message_id:
+        reply['In-Reply-To'] = original_message_id
+        reply['References'] = original_message_id
+
+    try:
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as server:
+            server.starttls()
+            server.login(username, password)
+            server.sendmail(username, [sender_email], reply.as_string())
+    except Exception as e:
+        logger.log(f'Απέτυχε αυτόματη απάντηση στον αποστολέα: {e}', 'WARN')
+
+
 def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: bool):
     msg = email.message_from_bytes(raw_email)
     sender_name, sender_email = parseaddr(msg.get('From', ''))
@@ -714,6 +754,8 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
 
     if not dry_run:
         notify_posted(config, logger, title, article_id)
+        article_url = article_frontend_url(config, article_id)
+        reply_to_sender(config, logger, msg, f'Το μήνυμά σας "{title}" αναρτήθηκε επιτυχώς:\n{article_url}')
 
     return 'posted'
 
@@ -796,6 +838,12 @@ def run_check_mail(config: dict, logger: RunLogger, control=None, progress_cb=No
             failed += 1
             if not dry_run:
                 notify_failed(config, logger, sender_email, subject, str(exc))
+                reply_to_sender(
+                    config, logger, msg,
+                    f'Δυστυχώς παρουσιάστηκε τεχνικό πρόβλημα κατά την αυτόματη ανάρτηση του '
+                    f'μηνύματός σας με θέμα "{subject}". Ο διαχειριστής του συστήματος έχει ήδη '
+                    f'ενημερωθεί.',
+                )
                 try:
                     move_message(imap_conn, msg_uid, FAILED_FOLDER)
                 except Exception as move_exc:
