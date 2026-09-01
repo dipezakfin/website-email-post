@@ -241,6 +241,36 @@ base64-encoded hash (`sha256:cost:hash`) όταν αποκωδικοποιηθε
   κι όταν το `GET` δείχνει `checked_out: null` — λύση: System →
   Maintenance → Global Check-in στο admin (ή απλά άνοιξε/κλείσε το
   άρθρο στο admin UI).
+- **413 "Request Entity Too Large" σε media uploads πάνω από ~1MB.**
+  Δεν είναι το nginx `client_max_body_size` (ήδη 128MB) — είναι το
+  **ModSecurity `SecRequestBodyNoFilesLimit`** (default 1MB,
+  εφαρμόζεται σε non-multipart/JSON POST bodies σαν το δικό μας).
+  Επιβεβαιώθηκε από το error log:
+  `Request body no files data length is larger than the configured
+  limit (1048576)`. Χρειάζεται να αυξηθεί από την τεχνική υποστήριξη
+  του hosting (δεν είναι ρύθμιση στο control panel — ελέγχθηκε τόσο το
+  nginx body-size setting όσο και το Imunify360 firewall, κανένα από
+  τα δύο δεν είναι η αιτία). Μέχρι τότε, βλ. "Μεγάλα συνημμένα"
+  παρακάτω για το client-side workaround.
+
+## Μεγάλα συνημμένα (μέχρι να λυθεί το hosting limit)
+
+Όσο ισχύει το παραπάνω 1MB όριο, το script προσπαθεί να μικρύνει τα
+συνημμένα πριν το upload, ελεγχόμενο από το GUI (fieldset "Μεγάλα
+συνημμένα"):
+
+- **`WEBSITE_POST_MAX_ATTACHMENT_KB`** (default `700`) — όριο σε KB,
+  πάνω από αυτό ενεργοποιούνται τα παρακάτω.
+- **`WEBSITE_POST_SHRINK_LARGE_IMAGES`** (YES/NO, default YES) — αν μια
+  εικόνα είναι ακόμα πάνω από το όριο μετά το κανονικό resize, μειώνει
+  περαιτέρω ποιότητα (μέχρι 20%) και μετά πλάτος (μέχρι 400px) μέχρι να
+  χωρέσει.
+- **`WEBSITE_POST_ZIP_LARGE_FILES`** (YES/NO, default YES) — συμπιέζει
+  σε zip πριν το upload. **Γνωστός περιορισμός**: δουλεύει καλά για
+  doc/txt/csv, αλλά **σχεδόν καθόλου για xlsx/docx/pdf** — είναι ήδη
+  συμπιεσμένα εσωτερικά (επιβεβαιώθηκε: πραγματικό xlsx 2366KB →
+  2335KB μετά το zip, ουσιαστικά καμία διαφορά). Για τέτοια αρχεία η
+  μόνη πραγματική λύση είναι το hosting fix παραπάνω.
 
 ## Χρήση
 
