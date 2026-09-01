@@ -629,9 +629,12 @@ def send_notification(config: dict, logger: RunLogger, subject: str, text: str) 
             logger.log(f'Απέτυχε ειδοποίηση email: {e}', 'WARN')
 
 
-def notify_posted(config: dict, logger: RunLogger, title: str, article_id) -> None:
+def notify_posted(config: dict, logger: RunLogger, title: str, article_id, sender_email: str) -> None:
     article_url = article_frontend_url(config, article_id)
-    send_notification(config, logger, f'Νέα ανάρτηση: {title}', f'📢 Νέα ανάρτηση: "{title}"\n{article_url}')
+    send_notification(
+        config, logger, f'Νέα ανάρτηση: {title}',
+        f'📢 Νέα ανάρτηση: "{title}"\nΑπό: {sender_email}\n{article_url}',
+    )
 
 
 def notify_skipped(config: dict, logger: RunLogger, sender_email: str, subject: str) -> None:
@@ -753,7 +756,7 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
     log_row(config, sender_email, raw_subject, 'POSTED', article_id, len(images) + len(other_files))
 
     if not dry_run:
-        notify_posted(config, logger, title, article_id)
+        notify_posted(config, logger, title, article_id, sender_email)
         article_url = article_frontend_url(config, article_id)
         reply_to_sender(config, logger, msg, f'Το μήνυμά σας "{title}" αναρτήθηκε επιτυχώς:\n{article_url}')
 
