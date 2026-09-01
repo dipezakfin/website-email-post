@@ -30,6 +30,7 @@ import io
 import os
 import re
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from email.header import decode_header
 from email.utils import parseaddr
@@ -237,9 +238,32 @@ def resize_image(config: dict, raw_bytes: bytes) -> bytes:
         ratio = max_width / img.width
         new_size = (max_width, int(img.height * ratio))
         img = img.resize(new_size, Image.LANCZOS)
+
     out = io.BytesIO()
     img.save(out, format='JPEG', quality=quality, optimize=True)
-    return out.getvalue()
+    result = out.getvalue()
+
+    # Ο server (ModSecurity SecRequestBodyNoFilesLimit) απορρίπτει request
+    # bodies πάνω από ένα όριο - αν η εικόνα είναι ακόμα πάνω από το
+    # ρυθμισμένο όριο μετά το κανονικό resize, τη σμικρύνουμε παραπάνω
+    # (πρώτα ποιότητα, μετά πλάτος) μέχρι να χωρέσει ή να φτάσουμε σε
+    # κατώτατο αποδεκτό όριο.
+    if cfg_bool(config, PREFIX + 'SHRINK_LARGE_IMAGES', True):
+        max_bytes = int(cfg(config, PREFIX + 'MAX_ATTACHMENT_KB', '700')) * 1024
+        attempt_quality = quality
+        attempt_img = img
+        while len(result) > max_bytes and (attempt_quality > 20 or attempt_img.width > 400):
+            if attempt_quality > 20:
+                attempt_quality -= 10
+            else:
+                new_width = max(400, int(attempt_img.width * 0.8))
+                ratio = new_width / attempt_img.width
+                attempt_img = attempt_img.resize((new_width, int(attempt_img.height * ratio)), Image.LANCZOS)
+            out = io.BytesIO()
+            attempt_img.save(out, format='JPEG', quality=attempt_quality, optimize=True)
+            result = out.getvalue()
+
+    return result
 
 
 def sanitize_filename(name):
@@ -251,6 +275,13 @@ def sanitize_filename(name):
     # them to one dot so a legitimate name never trips that check.
     name = re.sub(r'\.{2,}', '.', name)
     return name.strip('_.') or 'file'
+
+
+def zip_file_bytes(filename: str, raw_bytes: bytes) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(filename, raw_bytes)
+    return buf.getvalue()
 
 
 YOUTUBE_URL_RE = re.compile(
@@ -726,11 +757,27 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
     # different "Πρόσκληση.pdf") never collide in the shared media folder.
     unique_prefix = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S') + '-' + uuid.uuid4().hex[:6]
 
+    zip_large_files = cfg_bool(config, PREFIX + 'ZIP_LARGE_FILES', True)
+    max_attachment_bytes = int(cfg(config, PREFIX + 'MAX_ATTACHMENT_KB', '700')) * 1024
+
     uploaded_doc_links = []
     for filename, raw_bytes, _content_type in other_files:
-        safe_name = f'{unique_prefix}-{sanitize_filename(filename)}'
-        _, doc_url = joomla_upload_media(config, safe_name, raw_bytes, media_adapter_docs)
-        uploaded_doc_links.append((filename, doc_url))
+        upload_bytes, upload_filename = raw_bytes, filename
+        if zip_large_files and len(raw_bytes) > max_attachment_bytes:
+            # Ο server (ModSecurity) απορρίπτει μεγάλα request bodies -
+            # zip πριν το upload. Σημείωση: μορφές ήδη συμπιεσμένες
+            # (xlsx/docx/pdf) μπορεί να μη μικρύνουν πολύ, αλλά είναι το
+            # καλύτερο που μπορούμε να κάνουμε χωρίς να πειράξουμε το
+            # ίδιο το περιεχόμενο του αρχείου.
+            upload_bytes = zip_file_bytes(filename, raw_bytes)
+            upload_filename = filename + '.zip'
+            logger.log(
+                f'Το συνημμένο "{filename}" ({len(raw_bytes) // 1024}KB) συμπιέστηκε σε zip '
+                f'({len(upload_bytes) // 1024}KB) πριν το ανέβασμα',
+            )
+        safe_name = f'{unique_prefix}-{sanitize_filename(upload_filename)}'
+        _, doc_url = joomla_upload_media(config, safe_name, upload_bytes, media_adapter_docs)
+        uploaded_doc_links.append((upload_filename, doc_url))
 
     image_tags_html = []
     for filename, raw_bytes, _content_type, content_id in images:

@@ -37,6 +37,7 @@ GITHUB_SECRET_KEYS = {
     'WEBSITE_POST_MEDIA_ADAPTER_IMAGES', 'WEBSITE_POST_MEDIA_ADAPTER_DOCS', 'WEBSITE_POST_MEDIA_SUBPATH',
     'WEBSITE_POST_WHITELIST_EMAIL_ADDRESSES', 'WEBSITE_POST_DEFAULT_STATUS', 'WEBSITE_POST_DEFAULT_FEATURED',
     'WEBSITE_POST_IMAGE_MAX_WIDTH', 'WEBSITE_POST_IMAGE_JPEG_QUALITY', 'WEBSITE_POST_DRY_RUN',
+    'WEBSITE_POST_MAX_ATTACHMENT_KB', 'WEBSITE_POST_SHRINK_LARGE_IMAGES', 'WEBSITE_POST_ZIP_LARGE_FILES',
     'WEBSITE_POST_READMORE_AFTER_PARAGRAPHS',
     'WEBSITE_POST_NOTIFY_TELEGRAM', 'WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES', 'WEBSITE_POST_REPLY_TO_SENDER',
 }
@@ -303,6 +304,16 @@ __HEAD_SCRIPT__
     <div class="row"><label>Ποιότητα JPEG (%)</label><input type="number" id="cfg_WEBSITE_POST_IMAGE_JPEG_QUALITY" style="width:100px" onchange="saveCfg()"></div>
   </fieldset>
 
+  <fieldset><legend>Μεγάλα συνημμένα</legend>
+    <span class="hint">Ο server απορρίπτει uploads πάνω από ~1MB (ModSecurity). Μέχρι να διορθωθεί στο hosting, εδώ ρυθμίζεις πώς να αντιδράει το script.</span>
+    <div class="row"><label>Όριο μεγέθους (KB)</label><input type="number" id="cfg_WEBSITE_POST_MAX_ATTACHMENT_KB" style="width:100px" onchange="saveCfg()">
+      <span class="hint">πάνω από αυτό εφαρμόζονται τα παρακάτω</span></div>
+    <div class="row"><label>Σμίκρυνση μεγάλων εικόνων</label><label class="switch"><input type="checkbox" id="cfg_WEBSITE_POST_SHRINK_LARGE_IMAGES" onchange="saveCfg()"><span class="slider"></span></label>
+      <span class="hint">μειώνει ποιότητα/πλάτος μέχρι να χωρέσει</span></div>
+    <div class="row"><label>Zip μεγάλων εγγράφων</label><label class="switch"><input type="checkbox" id="cfg_WEBSITE_POST_ZIP_LARGE_FILES" onchange="saveCfg()"><span class="slider"></span></label>
+      <span class="hint">βοηθάει σε doc/txt/csv· τα xlsx/docx/pdf είναι ήδη συμπιεσμένα, δεν μικραίνουν πολύ</span></div>
+  </fieldset>
+
   <fieldset><legend>Ειδοποιήσεις ανάρτησης</legend>
     <div class="row"><label>Ειδοποίηση στο Telegram</label><label class="switch"><input type="checkbox" id="cfg_WEBSITE_POST_NOTIFY_TELEGRAM" onchange="saveCfg()"><span class="slider"></span></label>
       <span class="hint">χρησιμοποιεί το bot που ήδη έχεις ρυθμίσει (TELEGRAM_BOT_TOKEN/TELEGRAM_ALLOWED_CHAT_IDS)</span></div>
@@ -441,6 +452,9 @@ function _collectSettings() {
     WEBSITE_POST_READMORE_AFTER_PARAGRAPHS: val('cfg_WEBSITE_POST_READMORE_AFTER_PARAGRAPHS'),
     WEBSITE_POST_IMAGE_MAX_WIDTH: val('cfg_WEBSITE_POST_IMAGE_MAX_WIDTH'),
     WEBSITE_POST_IMAGE_JPEG_QUALITY: val('cfg_WEBSITE_POST_IMAGE_JPEG_QUALITY'),
+    WEBSITE_POST_MAX_ATTACHMENT_KB: val('cfg_WEBSITE_POST_MAX_ATTACHMENT_KB'),
+    WEBSITE_POST_SHRINK_LARGE_IMAGES: checked('cfg_WEBSITE_POST_SHRINK_LARGE_IMAGES') ? 'YES' : 'NO',
+    WEBSITE_POST_ZIP_LARGE_FILES: checked('cfg_WEBSITE_POST_ZIP_LARGE_FILES') ? 'YES' : 'NO',
     WEBSITE_POST_NOTIFY_TELEGRAM: checked('cfg_WEBSITE_POST_NOTIFY_TELEGRAM') ? 'YES' : 'NO',
     WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES: val('cfg_WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES'),
     WEBSITE_POST_REPLY_TO_SENDER: checked('cfg_WEBSITE_POST_REPLY_TO_SENDER') ? 'YES' : 'NO',
@@ -494,6 +508,9 @@ function loadSettings() {
     setVal('cfg_WEBSITE_POST_READMORE_AFTER_PARAGRAPHS', c.WEBSITE_POST_READMORE_AFTER_PARAGRAPHS || '0');
     setVal('cfg_WEBSITE_POST_IMAGE_MAX_WIDTH', c.WEBSITE_POST_IMAGE_MAX_WIDTH || '1600');
     setVal('cfg_WEBSITE_POST_IMAGE_JPEG_QUALITY', c.WEBSITE_POST_IMAGE_JPEG_QUALITY || '75');
+    setVal('cfg_WEBSITE_POST_MAX_ATTACHMENT_KB', c.WEBSITE_POST_MAX_ATTACHMENT_KB || '700');
+    setChecked('cfg_WEBSITE_POST_SHRINK_LARGE_IMAGES', c.WEBSITE_POST_SHRINK_LARGE_IMAGES || 'YES');
+    setChecked('cfg_WEBSITE_POST_ZIP_LARGE_FILES', c.WEBSITE_POST_ZIP_LARGE_FILES || 'YES');
     setChecked('cfg_WEBSITE_POST_NOTIFY_TELEGRAM', c.WEBSITE_POST_NOTIFY_TELEGRAM || 'NO');
     setVal('cfg_WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES', c.WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES);
     setChecked('cfg_WEBSITE_POST_REPLY_TO_SENDER', c.WEBSITE_POST_REPLY_TO_SENDER || 'NO');
