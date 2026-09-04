@@ -157,6 +157,15 @@ def parse_subject(raw_subject):
         else:
             tags.append(tag)
     title = HASHTAG_RE.sub('', raw_subject).strip()
+
+    # Το πεδίο τίτλου άρθρου στο Joomla (#__content.title) είναι VARCHAR(255)
+    # - ένα πολύ μακρύ θέμα email (έχουν εμφανιστεί θέματα 500+ χαρακτήρων)
+    # κάνει το POST /content/articles να αποτυγχάνει με 400 Bad Request.
+    max_title_len = 250
+    if len(title) > max_title_len:
+        truncated = title[:max_title_len].rsplit(' ', 1)[0]
+        title = (truncated or title[:max_title_len]).rstrip('.,·-') + '…'
+
     return title, tags, featured_override
 
 
