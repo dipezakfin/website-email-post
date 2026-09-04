@@ -598,6 +598,27 @@ def joomla_list_recent_articles(config: dict, limit: int = 10) -> list[dict]:
     ]
 
 
+def is_duplicate_article(config: dict, title: str, lookback: int = 40) -> bool:
+    """Ελέγχει αν υπάρχει ήδη πρόσφατο άρθρο με πανομοιότυπο τίτλο (μετά
+    από normalization κενών/πεζών-κεφαλαίων) - συμβαίνει όταν δύο
+    διαφορετικοί εγκεκριμένοι αποστολείς (π.χ. ο διευθυντής ξαναστέλνει
+    ό,τι είχε ήδη στείλει κάποιος άλλος) στέλνουν το ίδιο ακριβώς κείμενο
+    ανακοίνωσης. Δεν μπλοκάρει ποτέ την ανάρτηση αν ο ίδιος ο έλεγχος
+    αποτύχει (π.χ. προσωρινό πρόβλημα Joomla API)."""
+    normalized = re.sub(r'\s+', ' ', title).strip().lower()
+    if not normalized:
+        return False
+    try:
+        recent = joomla_list_recent_articles(config, limit=lookback)
+    except Exception:
+        return False
+    for article in recent:
+        existing = re.sub(r'\s+', ' ', article.get('title', '')).strip().lower()
+        if existing and existing == normalized:
+            return True
+    return False
+
+
 def joomla_set_article_state(config: dict, article_id, published: bool) -> dict:
     url = f'{joomla_base_url(config)}/content/articles/{article_id}'
     resp = requests.patch(
@@ -863,6 +884,17 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
 
     title, tag_names, featured_override = parse_subject(raw_subject)
     featured = default_featured if featured_override is None else featured_override
+
+    if is_duplicate_article(config, title):
+        logger.log(f'Παράλειψη (διπλότυπο περιεχόμενο - υπάρχει ήδη πρόσφατο άρθρο με ίδιο τίτλο): {title}', 'WARN')
+        log_row(config, sender_email, raw_subject, 'SKIPPED_DUPLICATE')
+        if not dry_run:
+            send_notification(
+                config, logger, 'Παράλειψη διπλότυπου μηνύματος',
+                f'⚠️ Παραλείφθηκε μήνυμα με περιεχόμενο που έχει ήδη αναρτηθεί πρόσφατα (πιθανό διπλό email '
+                f'από άλλον αποστολέα):\nΑπό: {sender_email}\nΘέμα: {raw_subject}',
+            )
+        return 'skipped'
 
     body_html, images, other_files = get_body_and_attachments(msg)
     body_html = embed_youtube_links(body_html)
