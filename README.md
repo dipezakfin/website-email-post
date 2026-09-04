@@ -269,8 +269,107 @@ base64-encoded hash (`sha256:cost:hash`) όταν αποκωδικοποιηθε
   σε zip πριν το upload. **Γνωστός περιορισμός**: δουλεύει καλά για
   doc/txt/csv, αλλά **σχεδόν καθόλου για xlsx/docx/pdf** — είναι ήδη
   συμπιεσμένα εσωτερικά (επιβεβαιώθηκε: πραγματικό xlsx 2366KB →
-  2335KB μετά το zip, ουσιαστικά καμία διαφορά). Για τέτοια αρχεία η
-  μόνη πραγματική λύση είναι το hosting fix παραπάνω.
+  2335KB μετά το zip, ουσιαστικά καμία διαφορά). Αγνοείται τελείως αν
+  είναι ενεργό το Google Drive παρακάτω.
+
+## Google Drive για μη-εικόνα συνημμένα (λύση στο 1MB όριο)
+
+Αντί να περιμένουμε το hosting fix ή να βασιζόμαστε στο ατελές zip
+mitigation, **όλα** τα μη-εικόνα συνημμένα (xlsx, docx, pdf, κ.λπ.)
+μπορούν να ανεβαίνουν κατευθείαν σε Google Drive αντί για το Joomla —
+αυτό παρακάμπτει εντελώς το ModSecurity όριο, αφού το upload δεν
+περνάει καθόλου από το site. Ρυθμίζεται στο GUI (fieldset "Google
+Drive για συνημμένα"):
+
+- **`WEBSITE_POST_GDRIVE_ENABLED`** (YES/NO, default NO) — όταν YES,
+  ΟΛΑ τα μη-εικόνα συνημμένα ανεβαίνουν σε Drive (όχι μόνο τα μεγάλα),
+  και οι ρυθμίσεις ζιπαρίσματος από πάνω αγνοούνται.
+- **`WEBSITE_POST_GDRIVE_FOLDER_ID`** — το ID του φακέλου Drive
+  (κοινόχρηστου με Editor δικαίωμα με τον λογαριασμό που έκανε το
+  OAuth setup παρακάτω).
+- **`WEBSITE_POST_GDRIVE_OAUTH_TOKEN_JSON`** — το authorized-user
+  token JSON (με `refresh_token`), βλ. setup παρακάτω.
+
+Τα αρχεία ανεβαίνουν ως view-only ("anyone with the link") και το URL
+τους μπαίνει στο άρθρο αντί για link προς το Joomla media.
+
+### Γιατί OAuth και όχι service account
+
+Αρχική προσπάθεια με service account (ίδιο μοτίβο με
+`sol-decl-extract`/`sol-decl-lookup`) **απέτυχε**: τα service accounts
+δεν έχουν δικό τους αποθηκευτικό χώρο σε προσωπικό (μη-Workspace)
+Google Drive και το upload αποτυγχάνει πάντα με
+`storageQuotaExceeded`, ανεξάρτητα από το ότι ο φάκελος είναι
+κοινόχρηστος με Editor δικαίωμα (δουλεύει μόνο με Shared Drives, που
+απαιτούν Google Workspace subscription — δεν υπάρχει εδώ, προσωπικός
+Gmail λογαριασμός).
+
+Λύση: OAuth **ως ο πραγματικός χρήστης** (ίδιο μοτίβο με το upload
+του app-publisher), με προ-παραγόμενο refresh token ώστε να δουλεύει
+headless μέσα στο GitHub Actions, χωρίς browser/interactive login σε
+κάθε run.
+
+### Εφάπαξ setup (μία φορά, τοπικά)
+
+1. Google Drive → δημιούργησε φάκελο (π.χ. "Email Post Attachments"),
+   μοιράσου τον με Editor δικαίωμα με τον εαυτό σου (ήδη δικός σου) —
+   απλά κράτα το ID του από το URL.
+2. Τρέξε τοπικά: `python gdrive_oauth_setup.py` (μέσα στον φάκελο της
+   εφαρμογής). Ανοίγει browser, κάνε login/έγκριση με τον προσωπικό σου
+   Google λογαριασμό. Χρησιμοποιεί το ίδιο OAuth Client (Desktop app)
+   με το app-publisher (`../app-publisher/gdrive-oauth-credentials.json`)
+   — δεν χρειάζεται νέο Google Cloud project.
+3. Το script τυπώνει (και αποθηκεύει τοπικά) το token JSON. Επικόλλησέ
+   το στο πεδίο "OAuth Token JSON" του GUI, μαζί με το Folder ID, και
+   ενεργοποίησε τον διακόπτη.
+
+### OAuth consent screen — "Testing" vs "In production"
+
+Αν το OAuth Client (Google Cloud Console → APIs & Services → OAuth
+consent screen → tab "Audience") είναι σε κατάσταση **"Testing"**, τα
+refresh tokens λήγουν σε ~7 μέρες — θα σταματούσε το αυτόματο ανέβασμα
+κάθε εβδομάδα. **Πρέπει να είναι "In production"** (κουμπί "PUBLISH
+APP" στο tab Audience). Αυτό απαιτεί, στο tab "Branding":
+
+- Application home page: `https://dipe.zak.sch.gr`
+- Privacy policy link: πραγματική σελίδα με ουσιαστικό περιεχόμενο
+  (φτιάχτηκε άρθρο στο ίδιο το Joomla site, id 1778, μη-featured,
+  εξηγεί τι δεδομένα συλλέγει η εφαρμογή μέσω του scope `drive.file`)
+- App name: να ταιριάζει με το όνομα που εμφανίζεται στο home page
+  (`Διεύθυνση Πρωτοβάθμιας Εκπαίδευσης Ζακύνθου`)
+- **Home page domain πρέπει να είναι verified στο Google Search
+  Console** (Add property → URL prefix → HTML file upload method →
+  ανέβασμα του verification αρχείου στο root του site μέσω FTP).
+- Το λογότυπο (π.χ. εθνόσημο) μπορεί να απορριφθεί ως "δεν
+  αναγνωρίζει μοναδικά το brand" (κοινό σε πολλά public-sector sites)
+  — απλά μην ανεβάσεις λογότυπο, δεν είναι υποχρεωτικό πεδίο.
+
+Μετά το "In production", ξανατρέξε το `gdrive_oauth_setup.py` μία
+ακόμα φορά ώστε το token να εκδοθεί υπό το νέο καθεστώς (τα ήδη
+εκδομένα tokens από όσο ήταν σε Testing μπορεί να κρατήσουν την
+7ήμερη λήξη).
+
+### Αποθηκευτικός χώρος — ειδοποίηση (χωρίς αυτόματο καθαρισμό)
+
+Ο προσωπικός Gmail λογαριασμός έχει όριο **15GB δωρεάν χώρο**
+(μοιρασμένο Gmail+Drive+Photos). Δεν υπάρχει αυτόματος καθαρισμός
+παλιών συνημμένων στο Drive — σκόπιμα, ώστε να μη σβηστεί ποτέ κάτι
+που ίσως χρειάζεται ακόμα κάποιο δημοσιευμένο άρθρο. Αντί γι' αυτό, σε
+κάθε `run_check_mail()` γίνεται έλεγχος ποσοστού χρήσης
+(`check_gdrive_storage_and_notify()`) και στέλνεται ειδοποίηση
+(ίδιο κανάλι με τις υπόλοιπες — Telegram/email) όταν η χρήση φτάσει το
+**`WEBSITE_POST_GDRIVE_STORAGE_ALERT_PERCENT`** (default `90`). Η
+ειδοποίηση στέλνεται μία φορά (marker αρχείο δίπλα στο log) και
+ξαναστέλνεται μόνο αν το ποσοστό πέσει κάτω από το όριο και μετά το
+ξαναπεράσει — δεν σε ενοχλεί σε κάθε run των 5 λεπτών.
+
+### Ονόματα αρχείων
+
+Το `sanitize_filename()` περικόπτει το όνομα (κρατώντας την επέκταση)
+σε max 100 bytes UTF-8 — τα ελληνικά ονόματα παίρνουν 2 bytes/χαρακτήρα,
+οπότε ένα φαινομενικά λογικό όνομα μπορεί εύκολα να ξεπεράσει το όριο
+μήκους filename του server (συνήθως 255 bytes, λιγότερο με το
+`unique_prefix` που προστίθεται μπροστά).
 
 ## Χρήση
 
