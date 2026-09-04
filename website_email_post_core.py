@@ -29,6 +29,7 @@ import imaplib
 import io
 import os
 import re
+import time
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -475,6 +476,24 @@ def insert_readmore_marker(html: str, after_paragraphs: int) -> str:
 # Joomla API
 # ---------------------------------------------------------------------------
 
+def joomla_request(method: str, url: str, retries: int = 3, backoff: float = 2.0, **kwargs):
+    """requests.<method>() με retry/backoff - το shared hosting του site
+    κάνει περιστασιακά ConnectionResetError/timeout σε τυχαία requests
+    (επιβεβαιώθηκε: συνέβη ακόμα και σε απλό GET), άσχετο με το μέγεθος ή
+    το είδος του request. Ξαναπροσπαθεί μόνο σε πρόβλημα σύνδεσης, ποτέ σε
+    πραγματικό HTTP σφάλμα (4xx/5xx από τον server) - αυτά ανεβαίνουν
+    αμέσως όπως πριν."""
+    last_exc = None
+    for attempt in range(1, retries + 1):
+        try:
+            return getattr(requests, method)(url, **kwargs)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            last_exc = e
+            if attempt < retries:
+                time.sleep(backoff * attempt)
+    raise last_exc
+
+
 def joomla_headers(config: dict, extra: dict | None = None) -> dict:
     token = cfg(config, PREFIX + 'API_TOKEN', '')
     headers = {
@@ -502,8 +521,8 @@ def joomla_upload_media(config: dict, filename: str, file_bytes: bytes, adapter:
         'path': f'{adapter}:/{subpath}/{filename}',
         'content': base64.b64encode(file_bytes).decode('ascii'),
     }
-    resp = requests.post(
-        url,
+    resp = joomla_request(
+        'post', url,
         headers=joomla_headers(config, {'Content-Type': 'application/json'}),
         params={'mediatypes': '0,1,2,3'},
         json=payload,
@@ -534,15 +553,15 @@ def joomla_get_or_create_tag_id(config: dict, tag_name: str):
     search_url = f'{joomla_base_url(config)}/tags'
     # filter[title] is accepted by the API but doesn't actually filter
     # anything server-side - fetch a large page and match client-side.
-    resp = requests.get(search_url, headers=joomla_headers(config), params={'page[limit]': 100}, timeout=30)
+    resp = joomla_request('get', search_url, headers=joomla_headers(config), params={'page[limit]': 100}, timeout=30)
     resp.raise_for_status()
     results = resp.json().get('data', [])
     for item in results:
         if item['attributes']['title'].strip().lower() == tag_name.strip().lower():
             return item['id']
 
-    create_resp = requests.post(
-        search_url,
+    create_resp = joomla_request(
+        'post', search_url,
         headers=joomla_headers(config, {'Content-Type': 'application/json'}),
         json={'title': tag_name, 'published': 1, 'parent_id': 1, 'language': '*', 'description': ''},
         timeout=30,
@@ -569,7 +588,7 @@ def joomla_create_article(config: dict, title, body_html, tag_ids, featured, dry
     if dry_run:
         return 'DRY_RUN'
 
-    resp = requests.post(url, headers=joomla_headers(config, {'Content-Type': 'application/json'}), json=payload, timeout=60)
+    resp = joomla_request('post', url, headers=joomla_headers(config, {'Content-Type': 'application/json'}), json=payload, timeout=60)
     resp.raise_for_status()
     return resp.json()['data']['id']
 
@@ -584,7 +603,7 @@ def joomla_list_recent_articles(config: dict, limit: int = 10) -> list[dict]:
         'page[limit]': limit,
         'list[fullordering]': 'a.created DESC',
     }
-    resp = requests.get(url, headers=joomla_headers(config), params=params, timeout=30)
+    resp = joomla_request('get', url, headers=joomla_headers(config), params=params, timeout=30)
     resp.raise_for_status()
     items = resp.json().get('data', [])
     return [
@@ -621,8 +640,8 @@ def is_duplicate_article(config: dict, title: str, lookback: int = 40) -> bool:
 
 def joomla_set_article_state(config: dict, article_id, published: bool) -> dict:
     url = f'{joomla_base_url(config)}/content/articles/{article_id}'
-    resp = requests.patch(
-        url,
+    resp = joomla_request(
+        'patch', url,
         headers=joomla_headers(config, {'Content-Type': 'application/json'}),
         json={'state': 1 if published else 0},
         timeout=30,
