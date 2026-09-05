@@ -25,6 +25,8 @@ from __future__ import annotations
 import base64
 import csv
 import email
+import hashlib
+import hmac
 import imaplib
 import io
 import os
@@ -766,15 +768,33 @@ def article_frontend_url(config: dict, article_id) -> str:
     return f'{website_url}/index.php?option=com_content&view=article&id={article_id}'
 
 
-def send_telegram_notification(text: str) -> None:
+def article_unpublish_link(config: dict, article_id) -> str | None:
+    """One-click unpublish link για το email απάντησης στον αποστολέα -
+    δείχνει σε ένα μικρό PHP endpoint πάνω στο ίδιο το Joomla site
+    (unpublish.php, βλ. gdrive_oauth_setup.py-style setup script
+    deploy_unpublish_endpoint.py) που επαληθεύει το HMAC token πριν κάνει
+    unpublish - ΜΟΝΟ αυτό το άρθρο, τίποτα άλλο δεν είναι δυνατό ακόμα κι
+    αν αλλάξει κανείς το id στο URL χωρίς το σωστό token."""
+    secret = cfg(config, PREFIX + 'UNPUBLISH_LINK_SECRET')
+    if not secret:
+        return None
+    website_url = cfg(config, 'WEBSITE_URL', '').rstrip('/')
+    token = hmac.new(secret.encode('utf-8'), str(article_id).encode('utf-8'), hashlib.sha256).hexdigest()[:32]
+    return f'{website_url}/email-post/unpublish.php?id={article_id}&token={token}'
+
+
+def send_telegram_notification(text: str, reply_markup: dict | None = None) -> None:
     token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
     chat_ids = [c.strip() for c in os.environ.get('TELEGRAM_ALLOWED_CHAT_IDS', '').split(',') if c.strip()]
     if not token or not chat_ids:
         return
+    payload = {'text': text}
+    if reply_markup:
+        payload['reply_markup'] = reply_markup
     for chat_id in chat_ids:
         requests.post(
             f'https://api.telegram.org/bot{token}/sendMessage',
-            json={'chat_id': chat_id, 'text': text},
+            json={**payload, 'chat_id': chat_id},
             timeout=15,
         )
 
@@ -799,13 +819,14 @@ def send_email_notification(config: dict, subject: str, body: str, recipients: l
         server.sendmail(username, recipients, msg.as_string())
 
 
-def send_notification(config: dict, logger: RunLogger, subject: str, text: str) -> None:
+def send_notification(config: dict, logger: RunLogger, subject: str, text: str,
+                       telegram_reply_markup: dict | None = None) -> None:
     """Best-effort - ποτέ δεν πρέπει να ρίξει το process_message()/
     run_check_mail() αφού καλείται ΜΕΤΑ το πραγματικό αποτέλεσμα
     (ανάρτηση/skip/error), όχι πριν."""
     if cfg_bool(config, PREFIX + 'NOTIFY_TELEGRAM', False):
         try:
-            send_telegram_notification(text)
+            send_telegram_notification(text, telegram_reply_markup)
         except Exception as e:
             logger.log(f'Απέτυχε ειδοποίηση Telegram: {e}', 'WARN')
 
@@ -819,9 +840,14 @@ def send_notification(config: dict, logger: RunLogger, subject: str, text: str) 
 
 def notify_posted(config: dict, logger: RunLogger, title: str, article_id, sender_email: str) -> None:
     article_url = article_frontend_url(config, article_id)
+    # Inline κουμπί Unpublish πάνω στην ίδια ειδοποίηση - το telegram_bot.py
+    # ήδη ξέρει να χειρίζεται callback_data "u:<id>" (ίδιος μηχανισμός με
+    # το /list), άρα δεν χρειάζεται καμία αλλαγή εκεί.
+    reply_markup = {'inline_keyboard': [[{'text': '🗑 Unpublish', 'callback_data': f'u:{article_id}'}]]}
     send_notification(
         config, logger, f'Νέα ανάρτηση: {title}',
         f'📢 Νέα ανάρτηση: "{title}"\nΑπό: {sender_email}\n{article_url}',
+        telegram_reply_markup=reply_markup,
     )
 
 
@@ -983,7 +1009,11 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
     if not dry_run:
         notify_posted(config, logger, title, article_id, sender_email)
         article_url = article_frontend_url(config, article_id)
-        reply_to_sender(config, logger, msg, f'Το μήνυμά σας "{title}" αναρτήθηκε επιτυχώς:\n{article_url}')
+        reply_body = f'Το μήνυμά σας "{title}" αναρτήθηκε επιτυχώς:\n{article_url}'
+        unpublish_link = article_unpublish_link(config, article_id)
+        if unpublish_link:
+            reply_body += f'\n\nΑν θέλετε να το αποσύρετε, πατήστε εδώ:\n{unpublish_link}'
+        reply_to_sender(config, logger, msg, reply_body)
 
     return 'posted'
 

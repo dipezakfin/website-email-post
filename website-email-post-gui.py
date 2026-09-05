@@ -40,6 +40,7 @@ GITHUB_SECRET_KEYS = {
     'WEBSITE_POST_MAX_ATTACHMENT_KB', 'WEBSITE_POST_SHRINK_LARGE_IMAGES', 'WEBSITE_POST_ZIP_LARGE_FILES',
     'WEBSITE_POST_READMORE_AFTER_PARAGRAPHS',
     'WEBSITE_POST_NOTIFY_TELEGRAM', 'WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES', 'WEBSITE_POST_REPLY_TO_SENDER',
+    'WEBSITE_POST_UNPUBLISH_LINK_SECRET',
     'WEBSITE_POST_GDRIVE_ENABLED', 'WEBSITE_POST_GDRIVE_FOLDER_ID', 'WEBSITE_POST_GDRIVE_OAUTH_TOKEN_JSON',
     'WEBSITE_POST_GDRIVE_STORAGE_ALERT_PERCENT',
 }
@@ -340,6 +341,8 @@ __HEAD_SCRIPT__
       <span class="hint">emails χωρισμένα με κόμμα, κενό = απενεργοποιημένο</span></div>
     <div class="row"><label>Αυτόματη απάντηση στον αποστολέα</label><label class="switch"><input type="checkbox" id="cfg_WEBSITE_POST_REPLY_TO_SENDER" onchange="saveCfg()"><span class="slider"></span></label>
       <span class="hint">reply στο ίδιο το email του, με link άρθρου αν αναρτήθηκε — όχι για μη εγκεκριμένους αποστολείς</span></div>
+    <div class="row"><label>Μυστικό κλειδί link απόσυρσης</label><input id="cfg_WEBSITE_POST_UNPUBLISH_LINK_SECRET" style="width:400px" onchange="saveCfg()">
+      <span class="hint">αν οριστεί, το email απάντησης περιλαμβάνει link one-click unpublish (χρειάζεται το unpublish.php στο site) — μην το αλλάξεις χωρίς λόγο, ακυρώνει όλα τα παλιά links</span></div>
   </fieldset>
 
   <fieldset><legend>Log &amp; Δοκιμή</legend>
@@ -481,6 +484,7 @@ function _collectSettings() {
     WEBSITE_POST_NOTIFY_TELEGRAM: checked('cfg_WEBSITE_POST_NOTIFY_TELEGRAM') ? 'YES' : 'NO',
     WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES: val('cfg_WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES'),
     WEBSITE_POST_REPLY_TO_SENDER: checked('cfg_WEBSITE_POST_REPLY_TO_SENDER') ? 'YES' : 'NO',
+    WEBSITE_POST_UNPUBLISH_LINK_SECRET: val('cfg_WEBSITE_POST_UNPUBLISH_LINK_SECRET'),
     WEBSITE_POST_LOG_FILE_PATH: val('cfg_WEBSITE_POST_LOG_FILE_PATH'),
     WEBSITE_POST_DRY_RUN: checked('cfg_WEBSITE_POST_DRY_RUN') ? 'YES' : 'NO',
   };
@@ -541,6 +545,7 @@ function loadSettings() {
     setChecked('cfg_WEBSITE_POST_NOTIFY_TELEGRAM', c.WEBSITE_POST_NOTIFY_TELEGRAM || 'NO');
     setVal('cfg_WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES', c.WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES);
     setChecked('cfg_WEBSITE_POST_REPLY_TO_SENDER', c.WEBSITE_POST_REPLY_TO_SENDER || 'NO');
+    setVal('cfg_WEBSITE_POST_UNPUBLISH_LINK_SECRET', c.WEBSITE_POST_UNPUBLISH_LINK_SECRET);
     setVal('cfg_WEBSITE_POST_LOG_FILE_PATH', c.WEBSITE_POST_LOG_FILE_PATH || 'logs/post_log.csv');
     setChecked('cfg_WEBSITE_POST_DRY_RUN', c.WEBSITE_POST_DRY_RUN || 'NO');
   });
