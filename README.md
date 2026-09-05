@@ -523,6 +523,38 @@ python website-email-post.py --dry-run   # δοκιμή, χωρίς πραγμα
 ποια Telegram updates έχουν ήδη επεξεργαστεί — χρησιμοποιείται το δικό
 του server-side offset mechanism του Telegram (getUpdates).
 
+### Ένα κλικ unpublish — χωρίς να χρειάζεται το id του άρθρου
+
+Δύο επιπλέον τρόποι για κάποιον που δεν ξέρει/δεν θέλει να ψάξει το id:
+
+- **Telegram**: κάθε ειδοποίηση "Νέα ανάρτηση" έχει ήδη ενσωματωμένο
+  inline κουμπί **🗑 Unpublish** πάνω στο ίδιο μήνυμα (`notify_posted()`
+  στο `website_email_post_core.py`) — ένα tap, τίποτα άλλο. Χρησιμοποιεί
+  το ίδιο callback mechanism (`u:<id>`) που ήδη χειρίζεται το
+  `telegram_bot.py` για το `/list`.
+- **Email**: όταν είναι ενεργό το `WEBSITE_POST_REPLY_TO_SENDER`, το
+  email επιβεβαίωσης προς τον αποστολέα περιλαμβάνει ένα one-click
+  unpublish link, π.χ.
+  `https://dipe.zak.sch.gr/email-post/unpublish.php?id=1786&token=...`.
+
+**Πώς δουλεύει το link** (`article_unpublish_link()` στο core.py): το
+token είναι HMAC-SHA256(μυστικό κλειδί, article_id) — ρυθμίζεται από το
+GUI (`WEBSITE_POST_UNPUBLISH_LINK_SECRET`, fieldset "Ειδοποιήσεις
+ανάρτησης"). Δεν χρειάζεται να ρυθμιστεί για να δουλέψουν τα υπόλοιπα —
+αν είναι κενό, απλά δεν μπαίνει link στο email.
+
+Το link δείχνει σε ένα μικρό PHP endpoint (`email-post/unpublish.php`)
+deployed **πάνω στο ίδιο το Joomla site** μέσω FTP (όχι στο GitHub
+Actions/GUI — έπρεπε να είναι κάπου πάντα-ενεργό ώστε να απαντάει σε
+ένα κλικ από email, και το site είναι ήδη αυτό). Το script επαληθεύει
+το token πριν κάνει οτιδήποτε (timing-safe `hash_equals`) και μπορεί
+**μόνο** να κάνει unpublish (`state=0`) στο ακριβές article id του
+link — τίποτα άλλο δεν είναι εφικτό, ακόμα κι αν αλλάξει κανείς το id
+στο URL χωρίς το σωστό token (403). Αν ποτέ αλλάξει το
+`WEBSITE_POST_UNPUBLISH_LINK_SECRET`, πρέπει να ενημερωθεί το ίδιο
+secret και μέσα στο `unpublish.php` στον server (ξαναανέβασμα μέσω
+FTP), αλλιώς τα νέα links θα αποτυγχάνουν με 403.
+
 ## Windows Task Scheduler (εναλλακτικό, τοπικό — προαιρετικό)
 
 Χρήσιμο μόνο αν κάποια στιγμή ο υπολογιστής **μένει πάντα ανοιχτός** και
