@@ -103,17 +103,32 @@ def handle_callback(config, callback_query):
     data = callback_query.get('data', '')
     action, _, article_id = data.partition(':')
 
-    if action not in ('p', 'u') or not article_id:
-        tg('answerCallbackQuery', callback_query_id=callback_query['id'], text='Άγνωστη ενέργεια')
+    if action in ('p', 'u') and article_id:
+        # Κουμπί από /list — ξαναχτίζει ΟΛΗ τη λίστα ώστε να δείχνει την
+        # ενημερωμένη κατάσταση όλων των άρθρων, όχι μόνο του ενός.
+        result = core.joomla_set_article_state(config, article_id, action == 'p')
+        verb = 'Δημοσιεύτηκε' if action == 'p' else 'Έγινε unpublish'
+        tg('answerCallbackQuery', callback_query_id=callback_query['id'], text=f'{verb}: {result["title"][:40]}')
+        articles = core.joomla_list_recent_articles(config, limit=10)
+        tg('editMessageReplyMarkup', chat_id=chat_id, message_id=message_id, reply_markup=articles_keyboard(articles))
         return
 
-    result = core.joomla_set_article_state(config, article_id, action == 'p')
-    verb = 'Δημοσιεύτηκε' if action == 'p' else 'Έγινε unpublish'
-    tg('answerCallbackQuery', callback_query_id=callback_query['id'], text=f'{verb}: {result["title"][:40]}')
+    if action in ('sp', 'su') and article_id:
+        # Κουμπί πάνω σε ειδοποίηση "Νέα ανάρτηση" (ένα μόνο άρθρο) - μετά
+        # το κλικ, το ίδιο κουμπί γίνεται η αντίθετη ενέργεια (toggle),
+        # ώστε ένα λανθασμένο unpublish να αναιρείται με ένα ακόμα tap,
+        # χωρίς να πειράξει τη λίστα άλλων άρθρων.
+        publish = action == 'sp'
+        result = core.joomla_set_article_state(config, article_id, publish)
+        verb = 'Δημοσιεύτηκε' if publish else 'Έγινε unpublish'
+        tg('answerCallbackQuery', callback_query_id=callback_query['id'], text=f'{verb}: {result["title"][:40]}')
+        next_action = 'su' if publish else 'sp'
+        next_text = '🗑 Unpublish' if publish else '↩ Republish'
+        new_markup = {'inline_keyboard': [[{'text': next_text, 'callback_data': f'{next_action}:{article_id}'}]]}
+        tg('editMessageReplyMarkup', chat_id=chat_id, message_id=message_id, reply_markup=new_markup)
+        return
 
-    # Ξαναχτίζει τα κουμπιά ώστε να δείχνουν την ενημερωμένη κατάσταση.
-    articles = core.joomla_list_recent_articles(config, limit=10)
-    tg('editMessageReplyMarkup', chat_id=chat_id, message_id=message_id, reply_markup=articles_keyboard(articles))
+    tg('answerCallbackQuery', callback_query_id=callback_query['id'], text='Άγνωστη ενέργεια')
 
 
 def process_update(config, update):

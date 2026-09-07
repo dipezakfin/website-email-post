@@ -768,19 +768,22 @@ def article_frontend_url(config: dict, article_id) -> str:
     return f'{website_url}/index.php?option=com_content&view=article&id={article_id}'
 
 
-def article_unpublish_link(config: dict, article_id) -> str | None:
-    """One-click unpublish link για το email απάντησης στον αποστολέα -
-    δείχνει σε ένα μικρό PHP endpoint πάνω στο ίδιο το Joomla site
-    (unpublish.php, βλ. gdrive_oauth_setup.py-style setup script
-    deploy_unpublish_endpoint.py) που επαληθεύει το HMAC token πριν κάνει
-    unpublish - ΜΟΝΟ αυτό το άρθρο, τίποτα άλλο δεν είναι δυνατό ακόμα κι
-    αν αλλάξει κανείς το id στο URL χωρίς το σωστό token."""
+def article_unpublish_link(config: dict, article_id, action: str = 'unpublish') -> str | None:
+    """One-click publish/unpublish link για το email απάντησης στον
+    αποστολέα - δείχνει σε ένα μικρό PHP endpoint πάνω στο ίδιο το Joomla
+    site (email-post/unpublish.php) που επαληθεύει το HMAC token πριν
+    κάνει οτιδήποτε - ΜΟΝΟ state=0/1 σε ΑΥΤΟ το article id, τίποτα άλλο
+    δεν είναι δυνατό ακόμα κι αν αλλάξει κανείς το id στο URL χωρίς το
+    σωστό token. Το token είναι κοινό και για τις δύο κατευθύνσεις (ίδιο
+    id) - επιτρέπει στο ίδιο link/token να χρησιμοποιηθεί και για
+    "↩ Επαναφορά" μετά από ένα κατά λάθος unpublish, χωρίς να χρειάζεται
+    δεύτερο ξεχωριστό email."""
     secret = cfg(config, PREFIX + 'UNPUBLISH_LINK_SECRET')
     if not secret:
         return None
     website_url = cfg(config, 'WEBSITE_URL', '').rstrip('/')
     token = hmac.new(secret.encode('utf-8'), str(article_id).encode('utf-8'), hashlib.sha256).hexdigest()[:32]
-    return f'{website_url}/email-post/unpublish.php?id={article_id}&token={token}'
+    return f'{website_url}/email-post/unpublish.php?id={article_id}&token={token}&action={action}'
 
 
 def send_telegram_notification(text: str, reply_markup: dict | None = None) -> None:
@@ -840,10 +843,11 @@ def send_notification(config: dict, logger: RunLogger, subject: str, text: str,
 
 def notify_posted(config: dict, logger: RunLogger, title: str, article_id, sender_email: str) -> None:
     article_url = article_frontend_url(config, article_id)
-    # Inline κουμπί Unpublish πάνω στην ίδια ειδοποίηση - το telegram_bot.py
-    # ήδη ξέρει να χειρίζεται callback_data "u:<id>" (ίδιος μηχανισμός με
-    # το /list), άρα δεν χρειάζεται καμία αλλαγή εκεί.
-    reply_markup = {'inline_keyboard': [[{'text': '🗑 Unpublish', 'callback_data': f'u:{article_id}'}]]}
+    # Inline κουμπί Unpublish πάνω στην ίδια ειδοποίηση - "s"-prefixed
+    # (single-article toggle) ώστε το telegram_bot.py να ξέρει να το
+    # μετατρέψει σε "↩ Republish" μετά το κλικ, χωρίς να πειράξει τη
+    # λίστα άλλων άρθρων (διαφορετικό μονοπάτι από το "p"/"u" του /list).
+    reply_markup = {'inline_keyboard': [[{'text': '🗑 Unpublish', 'callback_data': f'su:{article_id}'}]]}
     send_notification(
         config, logger, f'Νέα ανάρτηση: {title}',
         f'📢 Νέα ανάρτηση: "{title}"\nΑπό: {sender_email}\n{article_url}',
