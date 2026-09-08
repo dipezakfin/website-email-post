@@ -761,6 +761,31 @@ def reprocess_message(config: dict, logger: RunLogger, folder: str, uid: str, dr
     return {'ok': True, 'exit_code': 0, 'result': result}
 
 
+def retry_failed_messages(config: dict, logger: RunLogger, limit: int = 20) -> None:
+    """Ξαναδοκιμάζει αυτόματα ό,τι είναι στο Failed folder σε κάθε
+    run_check_mail() - πολλές αποτυχίες είναι στιγμιαίες (π.χ. το site
+    ήταν κάτω για λίγο), και πριν αυτό υπήρχε το κενό να μένουν κολλημένα
+    εκεί επ' αόριστον μέχρι να τα κάνει κάποιος reprocess με το χέρι.
+    Σκόπιμα ΔΕΝ ξαναστέλνει notify_failed σε συνεχιζόμενη αποτυχία (ήδη
+    ειδοποιήθηκε ο διαχειριστής την πρώτη φορά) - μόνο log, ώστε ένα
+    μόνιμα σπασμένο μήνυμα να μην ξαναστέλνει ειδοποίηση κάθε 5 λεπτά.
+    Σε επιτυχία, το reprocess_message() κάνει ήδη notify_posted/reply
+    κανονικά."""
+    try:
+        msgs = list_folder_messages(config, FAILED_FOLDER, limit=limit)
+    except Exception as e:
+        logger.log(f'Αποτυχία λίστας του Failed folder για auto-retry: {e}', 'WARN')
+        return
+
+    for m in msgs:
+        try:
+            result = reprocess_message(config, logger, FAILED_FOLDER, m['uid'], False)
+            if result.get('ok') and result.get('result') == 'posted':
+                logger.log(f'Auto-retry πέτυχε για μήνυμα uid={m["uid"]} (ήταν στο Failed)')
+        except Exception as e:
+            logger.log(f'Auto-retry απέτυχε για μήνυμα uid={m["uid"]}: {e}', 'WARN')
+
+
 def article_frontend_url(config: dict, article_id) -> str:
     website_url = cfg(config, 'WEBSITE_URL', '').rstrip('/')
     # Δουλεύει πάντα, ανεξάρτητα από SEF routing/menu assignment - δεν
@@ -1050,6 +1075,9 @@ def run_check_mail(config: dict, logger: RunLogger, control=None, progress_cb=No
         logger.log('DRY RUN ενεργό — δεν θα δημιουργηθούν πραγματικά άρθρα ούτε θα μετακινηθούν emails', 'WARN')
 
     check_gdrive_storage_and_notify(config, logger)
+
+    if not dry_run:
+        retry_failed_messages(config, logger)
 
     imap_conn = imaplib.IMAP4_SSL(imap_server, imap_port)
     imap_conn.login(email_username, email_password)
