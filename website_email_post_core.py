@@ -1105,8 +1105,14 @@ def run_check_mail(config: dict, logger: RunLogger, control=None, progress_cb=No
                 logger.log('Διακόπηκε από τον χρήστη', 'WARN')
                 break
 
-        fetch_item = '(BODY.PEEK[])' if dry_run else '(RFC822)'
-        status, msg_data = imap_conn.uid('FETCH', msg_uid, fetch_item)
+        # BODY.PEEK[] πάντα (όχι μόνο σε dry_run) - το RFC822 σημαδεύει
+        # αυτόματα \Seen, κάτι που έχει σημασία μόνο αν αποτύχει ΚΑΙ η
+        # επεξεργασία ΚΑΙ η επακόλουθη μετακίνηση στο Failed folder (π.χ.
+        # διακοπή δικτύου): το μήνυμα θα έμενε ορφανό στο INBOX σημαδεμένο
+        # ως διαβασμένο, αόρατο σε κάθε μελλοντικό UNSEEN search. Το τι
+        # έχει πραγματικά "τελειώσει" καθορίζεται από τον φάκελο όπου
+        # καταλήγει το μήνυμα (move_message), όχι από τη σημαία \Seen.
+        status, msg_data = imap_conn.uid('FETCH', msg_uid, '(BODY.PEEK[])')
         if status != 'OK' or not msg_data or not isinstance(msg_data[0], tuple):
             logger.log(f'Παράλειψη μηνύματος uid={msg_uid.decode() if isinstance(msg_uid, bytes) else msg_uid}: μη έγκυρη απάντηση IMAP FETCH ({status})', 'WARN')
             failed += 1
