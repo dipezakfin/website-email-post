@@ -515,7 +515,7 @@ def joomla_base_url(config: dict) -> str:
     return f'{website_url}/api/index.php/v1'
 
 
-def joomla_upload_media(config: dict, filename: str, file_bytes: bytes, adapter: str):
+def _joomla_upload_media(config: dict, filename: str, file_bytes: bytes, adapter: str):
     website_url = cfg(config, 'WEBSITE_URL', '').rstrip('/')
     subpath = cfg(config, PREFIX + 'MEDIA_SUBPATH', 'mail-posts')
     url = f'{joomla_base_url(config)}/media/files'
@@ -551,7 +551,7 @@ def joomla_upload_media(config: dict, filename: str, file_bytes: bytes, adapter:
     return actual_path, public_url
 
 
-def joomla_get_or_create_tag_id(config: dict, tag_name: str):
+def _joomla_get_or_create_tag_id(config: dict, tag_name: str):
     search_url = f'{joomla_base_url(config)}/tags'
     # filter[title] is accepted by the API but doesn't actually filter
     # anything server-side - fetch a large page and match client-side.
@@ -572,7 +572,7 @@ def joomla_get_or_create_tag_id(config: dict, tag_name: str):
     return create_resp.json()['data']['id']
 
 
-def joomla_create_article(config: dict, title, body_html, tag_ids, featured, dry_run: bool):
+def _joomla_create_article(config: dict, title, body_html, tag_ids, featured, dry_run: bool):
     category_id = int(cfg(config, PREFIX + 'CATEGORY_ID', '0'))
     default_status = cfg(config, PREFIX + 'DEFAULT_STATUS', 'DRAFT').strip().upper()
     url = f'{joomla_base_url(config)}/content/articles'
@@ -595,7 +595,7 @@ def joomla_create_article(config: dict, title, body_html, tag_ids, featured, dry
     return resp.json()['data']['id']
 
 
-def joomla_list_recent_articles(config: dict, limit: int = 10) -> list[dict]:
+def _joomla_list_recent_articles(config: dict, limit: int = 10) -> list[dict]:
     """Πιο πρόσφατα πρώτα, μέσα στην ίδια κατηγορία-στόχο - χρησιμοποιείται
     από το GUI (panel "Άρθρα") και το Telegram bot για publish/unpublish."""
     category_id = int(cfg(config, PREFIX + 'CATEGORY_ID', '0'))
@@ -640,7 +640,7 @@ def is_duplicate_article(config: dict, title: str, lookback: int = 40) -> bool:
     return False
 
 
-def joomla_set_article_state(config: dict, article_id, published: bool) -> dict:
+def _joomla_set_article_state(config: dict, article_id, published: bool) -> dict:
     url = f'{joomla_base_url(config)}/content/articles/{article_id}'
     resp = joomla_request(
         'patch', url,
@@ -651,6 +651,92 @@ def joomla_set_article_state(config: dict, article_id, published: bool) -> dict:
     resp.raise_for_status()
     attrs = resp.json()['data']['attributes']
     return {'id': attrs.get('id'), 'title': attrs.get('title'), 'state': attrs.get('state')}
+
+
+# ---------------------------------------------------------------------------
+# Dispatch ανά πλατφόρμα (WEBSITE_PLATFORM = joomla | dipecms)
+# Οι joomla_* συναρτήσεις παραμένουν τα δημόσια ονόματα (GUI/Telegram τις καλούν)
+# και δρομολογούν είτε στο Joomla API είτε στο API του νέου στατικού σαιτ (dipe-site).
+# ---------------------------------------------------------------------------
+
+def _is_dipecms(config: dict) -> bool:
+    return cfg(config, 'WEBSITE_PLATFORM', 'joomla').strip().lower() == 'dipecms'
+
+
+def dipecms_base_url(config: dict) -> str:
+    """Το API βρίσκεται στο <WEBSITE_URL>/api/ (π.χ. https://dipe.zak.sch.gr/new/api/)."""
+    return cfg(config, 'WEBSITE_URL', '').rstrip('/') + '/api/'
+
+
+def dipecms_headers(config: dict) -> dict:
+    return {'Authorization': 'Bearer ' + cfg(config, PREFIX + 'API_TOKEN', ''), 'Accept': 'application/json'}
+
+
+def dipecms_call(config: dict, method: str, route: str, payload: dict | None = None, params: dict | None = None, timeout: int = 90) -> dict:
+    kwargs = {'headers': dipecms_headers(config), 'params': {'r': route, **(params or {})}, 'timeout': timeout}
+    if payload is not None:
+        kwargs['json'] = payload
+    resp = joomla_request(method, dipecms_base_url(config), **kwargs)
+    try:
+        data = resp.json()
+    except ValueError:
+        data = {}
+    if resp.status_code >= 400:
+        raise RuntimeError(f'dipecms API {route}: HTTP {resp.status_code} {data.get("error", resp.text[:200])}')
+    return data
+
+
+def joomla_upload_media(config: dict, filename: str, file_bytes: bytes, adapter: str):
+    if not _is_dipecms(config):
+        return _joomla_upload_media(config, filename, file_bytes, adapter)
+    data = dipecms_call(config, 'post', 'media', {'filename': filename, 'content_base64': base64.b64encode(file_bytes).decode('ascii')})
+    website_url = cfg(config, 'WEBSITE_URL', '').rstrip('/')
+    # τα uploads ζουν στο /files και /images του ριζικού domain (κοινά με το παλιό σαιτ)
+    root = re.match(r'^(https?://[^/]+)', website_url).group(1)
+    url = data['url']
+    return url, root + '/' + '/'.join(quote(part) for part in url.strip('/').split('/'))
+
+
+def joomla_get_or_create_tag_id(config: dict, tag_name: str):
+    if not _is_dipecms(config):
+        return _joomla_get_or_create_tag_id(config, tag_name)
+    return tag_name        # το dipecms δημιουργεί/βρίσκει tags με βάση τον τίτλο
+
+
+def joomla_create_article(config: dict, title, body_html, tag_ids, featured, dry_run: bool):
+    if not _is_dipecms(config):
+        return _joomla_create_article(config, title, body_html, tag_ids, featured, dry_run)
+    if dry_run:
+        return 'DRY_RUN'
+    status = 'published' if cfg(config, PREFIX + 'DEFAULT_STATUS', 'DRAFT').strip().upper() == 'PUBLISHED' else 'draft'
+    data = dipecms_call(config, 'post', 'article', {
+        'title': title, 'body': body_html, 'tags': list(tag_ids or []), 'featured': bool(featured),
+        'status': status, 'category_id': int(cfg(config, PREFIX + 'CATEGORY_ID', '0')),
+    })
+    return data['id']
+
+
+def joomla_list_recent_articles(config: dict, limit: int = 10) -> list[dict]:
+    if not _is_dipecms(config):
+        return _joomla_list_recent_articles(config, limit)
+    data = dipecms_call(config, 'get', 'articles', params={'limit': limit}, timeout=30)
+    category_id = int(cfg(config, PREFIX + 'CATEGORY_ID', '0') or 0)
+    return [
+        {'id': a['id'], 'title': a.get('title', ''), 'state': 1 if a.get('status') == 'published' else 0, 'created': a.get('created', '')}
+        for a in data.get('articles', []) if not category_id or int(a.get('category_id') or 0) == category_id
+    ]
+
+
+def joomla_set_article_state(config: dict, article_id, published: bool) -> dict:
+    if not _is_dipecms(config):
+        return _joomla_set_article_state(config, article_id, published)
+    data = dipecms_call(config, 'post', 'article-state', {'id': int(article_id), 'status': 'published' if published else 'draft'}, timeout=30)
+    title = ''
+    try:
+        title = next((a['title'] for a in joomla_list_recent_articles(config, 50) if str(a['id']) == str(article_id)), '')
+    except Exception:
+        pass
+    return {'id': data.get('id'), 'title': title, 'state': 1 if published else 0}
 
 
 # ---------------------------------------------------------------------------
@@ -788,6 +874,8 @@ def retry_failed_messages(config: dict, logger: RunLogger, limit: int = 20) -> N
 
 def article_frontend_url(config: dict, article_id) -> str:
     website_url = cfg(config, 'WEBSITE_URL', '').rstrip('/')
+    if _is_dipecms(config):
+        return f'{website_url}/{article_id}-a'      # ανακατευθύνει στο κανονικό URL του άρθρου
     # Δουλεύει πάντα, ανεξάρτητα από SEF routing/menu assignment - δεν
     # χρειάζεται το άρθρο να είναι συνδεδεμένο με κάποιο menu item.
     return f'{website_url}/index.php?option=com_content&view=article&id={article_id}'
@@ -1050,8 +1138,8 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
 def run_check_mail(config: dict, logger: RunLogger, control=None, progress_cb=None,
                     dry_run_override: bool | None = None) -> dict:
     platform = cfg(config, 'WEBSITE_PLATFORM', 'joomla').strip().lower()
-    if platform != 'joomla':
-        logger.log(f'WEBSITE_PLATFORM={platform!r} δεν υποστηρίζεται ακόμα (μόνο "joomla")', 'ERROR')
+    if platform not in ('joomla', 'dipecms'):
+        logger.log(f'WEBSITE_PLATFORM={platform!r} δεν υποστηρίζεται (joomla | dipecms)', 'ERROR')
         return {'ok': False, 'exit_code': 1, 'posted': 0, 'skipped': 0, 'failed': 0}
 
     dry_run = cfg_bool(config, PREFIX + 'DRY_RUN', False) if dry_run_override is None else dry_run_override
@@ -1063,8 +1151,8 @@ def run_check_mail(config: dict, logger: RunLogger, control=None, progress_cb=No
 
     missing = [k for k, v in {
         'IMAP server': imap_server, 'Email username': email_username, 'Email password': email_password,
-        'Joomla API token': cfg(config, PREFIX + 'API_TOKEN'),
-        'Joomla category ID': cfg(config, PREFIX + 'CATEGORY_ID'),
+        'API token': cfg(config, PREFIX + 'API_TOKEN'),
+        'Category ID': cfg(config, PREFIX + 'CATEGORY_ID'),
         'Website URL': cfg(config, 'WEBSITE_URL'),
     }.items() if not v]
     if missing:

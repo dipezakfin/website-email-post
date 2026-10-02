@@ -273,8 +273,9 @@ __HEAD_SCRIPT__
     <div class="row"><label>Πλατφόρμα</label>
       <select id="cfg_WEBSITE_PLATFORM" onchange="saveCfg()">
         <option value="joomla">Joomla</option>
+        <option value="dipecms">Νέο σαιτ (dipe-site)</option>
       </select>
-      <span class="hint">Μόνο "joomla" υποστηρίζεται προς το παρόν</span></div>
+      <span class="hint">joomla = τωρινό σαιτ · dipecms = νέο στατικό σαιτ (Website URL: π.χ. https://dipe.zak.sch.gr/new)</span></div>
     <div class="row"><label>Website URL</label><input id="cfg_WEBSITE_URL" style="width:320px" onchange="saveCfg()"></div>
     <div class="row"><label>HTTPS Port</label><input id="cfg_WEBSITE_POST_HTTPS_PORT" style="width:100px" onchange="saveCfg()"></div>
     <div class="row"><label>API Token</label><input type="password" id="cfg_WEBSITE_POST_API_TOKEN" style="width:400px" onchange="saveCfg()"></div>
