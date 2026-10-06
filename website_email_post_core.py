@@ -32,6 +32,7 @@ import io
 import os
 import re
 import time
+import unicodedata
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -170,6 +171,78 @@ def parse_subject(raw_subject):
         title = (truncated or title[:max_title_len]).rstrip('.,·-') + '…'
 
     return title, tags, featured_override
+
+
+# Κύρια ονόματα (κλειδί: χωρίς τόνους, πεζά) -> σωστή γραφή.
+PROPER_NOUNS = {
+    'ζακυνθος': 'Ζάκυνθος', 'ζακυνθου': 'Ζακύνθου', 'ζακυνθο': 'Ζάκυνθο',
+    'ελλαδα': 'Ελλάδα', 'ελλαδας': 'Ελλάδας',
+    'αθηνα': 'Αθήνα', 'αθηνας': 'Αθήνας',
+    'ευρωπη': 'Ευρώπη', 'ιονιο': 'Ιόνιο',
+    'ιωαννινα': 'Ιωάννινα', 'θεσσαλονικη': 'Θεσσαλονίκη', 'πατρα': 'Πάτρα',
+    'κεφαλονια': 'Κεφαλονιά', 'κρητη': 'Κρήτη',
+    'δ.π.ε': 'Δ.Π.Ε.', 'δπε': 'ΔΠΕ',
+    'υπαιθ': 'ΥΠΑΙΘ', 'ιονιου': 'Ιονίου',
+}
+
+# Συντομογραφίες που μένουν πάντα κεφαλαίες.
+ACRONYMS = {
+    'δπε', 'δυπα', 'οαεδ', 'ασεπ', 'αφμ', 'κεπ', 'οτα', 'εσπα', 'υπαιθ',
+    'ικα', 'εφκα', 'αμκα', 'επαλ', 'γελ', 'επας', 'ιεκ', 'εε', 'κυα', 'φεκ',
+}
+
+
+def _strip_accents(text):
+    return ''.join(c for c in unicodedata.normalize('NFD', text) if unicodedata.category(c) != 'Mn')
+
+
+def is_shouting(text):
+    """True αν το κείμενο είναι σχεδόν όλο κεφαλαία (π.χ. 'ΑΝΑΚΟΙΝΩΣΗ ΓΙΑ ...')."""
+    letters = [c for c in text if c.isalpha()]
+    if len(letters) < 8:
+        return False
+    return sum(1 for c in letters if c.isupper()) / len(letters) >= 0.7
+
+
+_WORD_RE = re.compile(r'[^\W\d_]+(?:\.[^\W\d_]+)*\.?')
+_SENTENCE_START_RE = re.compile(r'(^|[.!?;]\s+|\n\s*)([^\W\d_])', re.M)
+
+
+def _fix_word(match):
+    token = match.group(0)
+    key = _strip_accents(token.lower()).rstrip('.')
+    trailing = '.' if token.endswith('.') else ''
+    if key in PROPER_NOUNS:
+        canonical = PROPER_NOUNS[key]
+        return canonical + ('.' if trailing and not canonical.endswith('.') else '')
+    if key in ACRONYMS:
+        return token.upper()
+    return token
+
+
+def _sentence_case(text):
+    lowered = text.lower()
+    lowered = _SENTENCE_START_RE.sub(lambda m: m.group(1) + m.group(2).upper(), lowered)
+    return _WORD_RE.sub(_fix_word, lowered)
+
+
+def fix_shouting_text(text):
+    """Μετατρέπει κείμενο ΟΛΟ ΚΕΦΑΛΑΙΑ σε πεζά, με κεφαλαίο μόνο στην αρχή
+    κάθε πρότασης/γραμμής και στα κύρια ονόματα. Κανονικό κείμενο μένει ίδιο."""
+    if not is_shouting(text):
+        return text
+    return _sentence_case(text)
+
+
+def fix_shouting_html(body_html):
+    """Ίδιο με το fix_shouting_text, αλλά αγνοεί τις ετικέτες HTML (attributes, href).
+    Η απόφαση γίνεται στο σύνολο του σώματος, ώστε μικρά τμήματα (π.χ. μια
+    λέξη μέσα σε <strong>) να μετατρέπονται μαζί με το υπόλοιπο κείμενο."""
+    plain = re.sub(r'<[^>]+>', ' ', body_html)
+    if not is_shouting(plain):
+        return body_html
+    parts = re.split(r'(<[^>]+>)', body_html)
+    return ''.join(p if p.startswith('<') else _sentence_case(p) for p in parts)
 
 
 def get_body_and_attachments(msg):
@@ -1045,6 +1118,7 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
     media_adapter_docs = cfg(config, PREFIX + 'MEDIA_ADAPTER_DOCS', 'local-files')
 
     title, tag_names, featured_override = parse_subject(raw_subject)
+    title = fix_shouting_text(title)
     featured = default_featured if featured_override is None else featured_override
 
     if is_duplicate_article(config, title):
@@ -1059,6 +1133,7 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
         return 'skipped'
 
     body_html, images, other_files = get_body_and_attachments(msg)
+    body_html = fix_shouting_html(body_html)
     body_html = embed_youtube_links(body_html)
 
     readmore_after = int(cfg(config, PREFIX + 'READMORE_AFTER_PARAGRAPHS', '0'))
