@@ -7,3 +7,57 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# >>> sensitive-data guard (managed) >>>
+# Secrets / credentials
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.sample.txt
+*.bak
+*.key
+*.p12
+*.pfx
+*.jks
+.clasprc.json
+token*.json
+*token.json
+credentials*.json
+client_secret*.json
+service-account*.json
+*cookies*.json
+# Office / tabular files (may contain personal data)
+*.xls
+*.xlsx
+*.xlsm
+*.xlsb
+*.csv
+*.tsv
+*.doc
+*.docx
+*.odt
+*.ods
+*.pdf
+# Captured traffic, databases, logs, run output
+*.har
+*.db
+*.sqlite
+*.sqlite3
+*.log
+error_screenshots/
+screenshots/
+output/
+outputs/
+downloads/
+logs/
+# <<< sensitive-data guard (managed) <<<
+# Misc local artefacts
+__pycache__/
+*.pyc
+~$*
+login_error_*
+*.egg-info/
+.venv/
+venv/
+node_modules/
