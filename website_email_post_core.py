@@ -1151,13 +1151,6 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
     for filename, raw_bytes, content_type in other_files:
         safe_name = f'{unique_prefix}-{sanitize_filename(filename)}'
 
-        if gdrive_enabled:
-            # Google Drive παρακάμπτει εντελώς το Joomla API - όχι zip/
-            # shrink ανάγκη, δεν υπόκειται στο ModSecurity όριο του site.
-            doc_url = gdrive_upload_file(config, safe_name, raw_bytes, content_type)
-            uploaded_doc_links.append((filename, doc_url))
-            continue
-
         upload_bytes, upload_filename = raw_bytes, filename
         if zip_large_files and len(raw_bytes) > max_attachment_bytes:
             # Ο server (ModSecurity) απορρίπτει μεγάλα request bodies -
@@ -1172,8 +1165,22 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
                 f'Το συνημμένο "{filename}" ({len(raw_bytes) // 1024}KB) συμπιέστηκε σε zip '
                 f'({len(upload_bytes) // 1024}KB) πριν το ανέβασμα',
             )
-        _, doc_url = joomla_upload_media(config, safe_name, upload_bytes, media_adapter_docs)
-        uploaded_doc_links.append((upload_filename, doc_url))
+
+        try:
+            _, doc_url = joomla_upload_media(config, safe_name, upload_bytes, media_adapter_docs)
+            uploaded_doc_links.append((upload_filename, doc_url))
+        except Exception as e:
+            if not gdrive_enabled:
+                raise
+            # Το site (π.χ. ModSecurity) απέρριψε το upload - fallback σε
+            # Google Drive με το ΑΡΧΙΚΟ (μη-zip) αρχείο, που δεν έχει
+            # όριο μεγέθους. Το site παραμένει πάντα η πρώτη επιλογή.
+            logger.log(
+                f'Απέτυχε το ανέβασμα του "{filename}" στο site ({e}) - fallback σε Google Drive',
+                'WARN',
+            )
+            doc_url = gdrive_upload_file(config, f'{unique_prefix}-{sanitize_filename(filename)}', raw_bytes, content_type)
+            uploaded_doc_links.append((filename, doc_url))
 
     image_tags_html = []
     for filename, raw_bytes, _content_type, content_id in images:
