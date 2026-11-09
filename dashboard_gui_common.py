@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -59,26 +60,29 @@ from pathlib import Path
 from flask import jsonify, request
 
 try:
-    from dashboard_core_common import RunLogger
+    from dashboard_core_common import RunLogger, log_final_status
 except ImportError:  # αν αντιγράφτηκε μόνο αυτό το αρχείο χωρίς το core_common
     RunLogger = None
 
 
 # ---------------------------------------------------------------------------
+
+LOGO_WHITE_DATA_URI = "data:image/png;base64,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"
 # CSS (dark mode via CSS variables + toggle, μοντέρνο styling)
 # ---------------------------------------------------------------------------
 
 COMMON_CSS = r"""
   :root {
-    --bg: #eef1f5; --fg: #222; --header-bg: #2c3e50; --header-fg: #fff;
-    --tabs-bg: #34495e; --tab-fg: #ccd3da; --tab-hover-bg: #3d5166;
-    --fieldset-bg: #fff; --fieldset-border: #d8dee4; --legend-fg: #2c3e50;
+    --bg: #eef1f5; --fg: #222; --header-bg: #223A66; --header-fg: #fff;
+    --tabs-bg: #2B4574; --tab-fg: #ccd3da; --tab-hover-bg: #355285;
+    --fieldset-bg: #fff; --fieldset-border: #d8dee4; --legend-fg: #223A66;
     --input-bg: #fff; --input-border: #c7ccd1; --input-fg: #222;
     --btn-bg: #eef1f5; --btn-border: #b8bec4; --btn-fg: #222; --btn-hover-bg: #e0e5ea;
     --table-border: #e0e4e8; --table-head-bg: #eef1f5; --table-row-hover: #f7f9fb;
     --table-cell-border: #eceff2;
     --log-bg: #1e1e1e; --log-fg: #d4d4d4;
-    --hint-fg: #777; --shadow: rgba(0,0,0,0.06); --accent: #2980b9;
+    --hint-fg: #777; --shadow: rgba(0,0,0,0.06); --accent: #223A66;
+    --obtn-fg: #223A66; --pbtn-bg: #223A66; --pbtn-hover: #285a9f;
   }
   [data-theme="dark"] {
     --bg: #181c20; --fg: #e2e5e8; --header-bg: #11151a; --header-fg: #f0f0f0;
@@ -90,6 +94,7 @@ COMMON_CSS = r"""
     --table-cell-border: #2c333a;
     --log-bg: #0d0f11; --log-fg: #c8c8c8;
     --hint-fg: #93a0ab; --shadow: rgba(0,0,0,0.3); --accent: #4ea3e0;
+    --obtn-fg: #7fb3e0; --pbtn-bg: #285a9f; --pbtn-hover: #3470b8;
   }
   * { box-sizing: border-box; }
   body { font-family: "Segoe UI", Arial, sans-serif; margin: 0; background: var(--bg); color: var(--fg);
@@ -97,6 +102,10 @@ COMMON_CSS = r"""
   header { background: var(--header-bg); color: var(--header-fg); padding: 16px 22px;
     display: flex; align-items: center; justify-content: space-between; }
   header h1 { margin: 0; font-size: 20px; }
+  /* dipe-logo: λογότυπο αριστερά από τον τίτλο */
+  header h1 { display: flex; align-items: center; gap: 12px; }
+  header h1::before { content: ""; flex: none; width: 38px; height: 38px;
+    background: url(data:image/png;base64,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) center / contain no-repeat; }
   .header-actions { display: flex; align-items: center; gap: 6px; }
   .header-actions button { margin: 0; }
   #theme_toggle { background: transparent; border: 1px solid rgba(255,255,255,0.3); color: inherit;
@@ -108,6 +117,9 @@ COMMON_CSS = r"""
     border-radius: 8px 8px 0 0; transition: background 0.15s, color 0.15s; }
   .tab:hover { background: var(--tab-hover-bg); color: var(--header-fg); }
   .tab.active { background: var(--bg); color: var(--fg); font-weight: bold; }
+  /* Καρφωμένο (sticky) το πάνω τμήμα: header + μπάρα tabs μένουν ορατά στο scroll (το --hdr-h το ορίζει το κοινό JS) */
+  body > header { position: sticky; top: 0; z-index: 100; }
+  body > .tabs { position: sticky; top: var(--hdr-h, 0px); z-index: 100; }
   .panel { display: none; padding: 22px; max-width: 1100px; margin: 0 auto; }
   .panel.active { display: block; }
   fieldset { border: 1px solid var(--fieldset-border); border-radius: 12px; margin-bottom: 16px;
@@ -123,25 +135,34 @@ COMMON_CSS = r"""
   textarea { width: 100%; height: 140px; font-family: monospace; border-radius: 8px; }
   input[type=checkbox] { width: 20px; height: 20px; vertical-align: middle; cursor: pointer;
     accent-color: var(--accent); }
-  .switch { position: relative; display: inline-block; width: 44px; min-width: 44px; height: 24px;
-    vertical-align: middle; }
+  /* !important: κανένα per-panel `label { min-width }` override (π.χ. #panel-settings label) δεν πρέπει
+     ποτέ να τεντώνει το switch — έχει πάντα σταθερό μέγεθος 34x18. */
+  .switch { position: relative; display: inline-block; width: 34px !important; min-width: 34px !important;
+    max-width: 34px !important; height: 18px; vertical-align: middle; flex: 0 0 34px; }
   .switch input[type=checkbox] { opacity: 0; width: 0; height: 0; position: absolute; }
   .switch .slider { position: absolute; inset: 0; background: var(--btn-border); transition: background 0.2s;
     border-radius: 999px; cursor: pointer; }
-  .switch .slider::before { content: ""; position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px;
+  .switch .slider::before { content: ""; position: absolute; height: 14px; width: 14px; left: 2px; bottom: 2px;
     background: #fff; transition: transform 0.2s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
   .switch input[type=checkbox]:checked + .slider { background: var(--accent); }
-  .switch input[type=checkbox]:checked + .slider::before { transform: translateX(20px); }
+  .switch input[type=checkbox]:checked + .slider::before { transform: translateX(16px); }
   .switch input[type=checkbox]:disabled + .slider { opacity: 0.5; cursor: default; }
   .switch input[type=checkbox]:focus-visible + .slider { outline: 2px solid var(--accent); outline-offset: 2px; }
   button { padding: 8px 16px; margin: 4px 4px 4px 0; cursor: pointer; border: 1px solid var(--btn-border);
     border-radius: 8px; background: var(--btn-bg); color: var(--btn-fg); font-size: 14px;
     transition: background 0.15s, transform 0.05s; }
-  button:hover { background: var(--btn-hover-bg); }
+  /* στυλ κουμπιών όπως dipe.zak.sch.gr: outline (.btn-outline) και γεμάτο navy (.btn) */
+  button { background: transparent; color: var(--obtn-fg); border-color: var(--obtn-fg); font-weight: 600; }
+  button:hover { background: var(--pbtn-bg); color: #fff; border-color: var(--pbtn-hover); }
   button:active { transform: scale(0.97); }
   button:disabled { opacity: 0.6; cursor: default; transform: none; }
-  button.primary { background: #2980b9; color: #fff; border-color: #2980b9; }
-  button.primary:hover { background: #2471a3; }
+  button.primary { background: var(--pbtn-bg); color: #fff; border-color: var(--pbtn-bg); }
+  button.primary:hover { background: var(--pbtn-hover); border-color: var(--pbtn-hover); }
+  header button { background: transparent; color: #fff; border-color: rgba(255,255,255,0.55); }
+  header button:hover { background: #fff; color: #223A66; border-color: #fff; }
+  header button.primary { background: #285a9f; border-color: #285a9f; }
+  header button.primary:hover { background: #3470b8; color: #fff; border-color: #3470b8; }
+  header button.success, header button.danger { color: #fff; }
   button.success { background: #27ae60; color: #fff; border-color: #27ae60; }
   button.success:hover { background: #229954; }
   button.danger { background: #c0392b; color: #fff; border-color: #c0392b; }
@@ -170,7 +191,7 @@ COMMON_CSS = r"""
   .rte-editor { border: 1px solid var(--input-border); border-radius: 8px; min-height: 140px;
     max-height: 400px; padding: 10px; background: var(--input-bg); color: var(--input-fg);
     overflow-y: auto; margin-bottom: 8px; }
-  .rte-editor:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(41,128,185,0.15); }
+  .rte-editor:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(34,58,102,0.18); }
   .rte-editor img { max-width: 100%; }
   .chip-btn { padding: 3px 10px; margin: 2px 4px 2px 0; border-radius: 999px; border: 1px solid var(--btn-border);
     background: var(--btn-bg); color: var(--btn-fg); cursor: pointer; font-size: 12px; font-family: monospace; }
@@ -180,6 +201,16 @@ COMMON_CSS = r"""
   .modal-box { background: var(--fieldset-bg); color: var(--fg); border-radius: 12px; padding: 22px;
     max-width: 480px; width: 90%; box-shadow: 0 8px 30px rgba(0,0,0,0.3); }
   .modal-box h3 { margin-top: 0; }
+  .restart-progress { width: 260px; height: 6px; border-radius: 999px; overflow: hidden;
+    background: var(--btn-hover-bg); margin: 20px auto 0; }
+  .restart-progress-fill { width: 40%; height: 100%; background: var(--accent); border-radius: 999px;
+    animation: restart-bar-slide 1.1s infinite ease-in-out; }
+  @keyframes restart-bar-slide { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
+  .scroll-top-btn { position: fixed; right: 22px; bottom: 22px; width: 42px; height: 42px; border-radius: 50%;
+    background: var(--accent); color: #fff; border: none; font-size: 20px; line-height: 1; cursor: pointer;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.35); display: none; align-items: center; justify-content: center; z-index: 500; }
+  .scroll-top-btn.visible { display: flex; }
+  .scroll-top-btn:hover { filter: brightness(1.1); }
 """
 
 THEME_TOGGLE_BUTTON_HTML = (
@@ -196,6 +227,7 @@ def render_head(theme_key: str) -> str:
     (ώστε να μην τρεμοπαίξει λάθος θέμα). theme_key: μοναδικό localStorage
     key ανά app (π.χ. 'email-sender-theme')."""
     return f"""<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/png" sizes="32x32" href="data:image/png;base64,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">
 <script>
   (function () {{
     const saved = localStorage.getItem('{theme_key}');
@@ -234,6 +266,78 @@ function withLoading(btn, promise) {{
   btn.disabled = true;
   btn.textContent = '⏳ ' + original;
   return promise.finally(() => {{ btn.disabled = false; btn.textContent = original; }});
+}}
+
+// Δικά μας παράθυρα μηνυμάτων αντί για τα native του browser (που γράφουν
+// «localhost:50xx says»). Το alert() αντικαθίσταται καθολικά (μη μπλοκάρον)·
+// για επιβεβαίωση χρησιμοποίησε: if (!await dashConfirm('...')) return;
+function _dashDialog(message, withCancel) {{
+  return new Promise(resolve => {{
+    const ov = document.createElement('div');
+    ov.className = 'modal-overlay';
+    ov.style.zIndex = 2000;
+    const box = document.createElement('div');
+    box.className = 'modal-box';
+    const h = document.createElement('h3');
+    h.textContent = 'Dashboard ΔΙΠΕ';
+    const p = document.createElement('div');
+    p.style.whiteSpace = 'pre-wrap';
+    p.style.margin = '10px 0 16px';
+    p.textContent = String(message === undefined ? '' : message);
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    const done = (v) => {{ document.removeEventListener('keydown', onKey, true); ov.remove(); resolve(v); }};
+    const ok = document.createElement('button');
+    ok.type = 'button'; ok.textContent = 'OK'; ok.onclick = () => done(true);
+    if (withCancel) {{
+      const cancel = document.createElement('button');
+      cancel.type = 'button'; cancel.textContent = 'Άκυρο'; cancel.onclick = () => done(false);
+      row.appendChild(cancel);
+    }}
+    row.appendChild(ok);
+    box.append(h, p, row);
+    ov.appendChild(box);
+    const onKey = (e) => {{
+      if (e.key === 'Escape') {{ e.preventDefault(); done(!withCancel); }}
+      else if (e.key === 'Enter') {{ e.preventDefault(); done(true); }}
+    }};
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(ov);
+    ok.focus();
+  }});
+}}
+window.alert = function (message) {{ _dashDialog(message, false); }};
+function dashConfirm(message) {{ return _dashDialog(message, true); }}
+
+// Γενικό βοήθημα αντιγραφής κειμένου (π.χ. το περιεχόμενο ενός log panel) στο πρόχειρο —
+// navigator.clipboard χρειάζεται secure context (https ή localhost)· fallback σε
+// document.execCommand('copy') για http/embedded contexts όπου δεν είναι διαθέσιμο.
+function copyTextToClipboard(text, btn) {{
+  const done = (ok) => {{
+    if (!btn) return;
+    const original = btn.dataset.origLabel || btn.textContent;
+    btn.dataset.origLabel = original;
+    btn.textContent = ok ? '✓ Αντιγράφηκε' : '✗ Αποτυχία αντιγραφής';
+    setTimeout(() => {{ btn.textContent = original; }}, 1500);
+  }};
+  if (navigator.clipboard && navigator.clipboard.writeText) {{
+    navigator.clipboard.writeText(text).then(() => done(true), () => done(false));
+    return;
+  }}
+  try {{
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    done(ok);
+  }} catch (e) {{
+    done(false);
+  }}
 }}
 
 function showConfirmModal(title, bodyHtml, confirmLabel, onConfirm) {{
@@ -290,6 +394,19 @@ function editFile(inputId) {{
   }});
 }}
 
+// Ανοίγει τη διεύθυνση URL που περιέχει το πεδίο inputId στον προεπιλεγμένο
+// browser των Windows (server-side webbrowser.open — όχι window.open, ώστε
+// να ανοίγει πάντα τον πραγματικό default browser ακόμα κι όταν το GUI
+// τρέχει μέσα σε embedded webview και όχι σε κανονικό browser tab).
+function openUrl(inputId) {{
+  const el = document.getElementById(inputId);
+  const url = el ? el.value.trim() : '';
+  if (!url) {{ alert('Δεν έχει οριστεί διεύθυνση URL'); return; }}
+  api('open-url', {{url: url}}).then(r => {{
+    if (!r.ok) alert('Σφάλμα ανοίγματος: ' + (r.error || ''));
+  }});
+}}
+
 // --- Rich text editor (contenteditable, χωρίς CDN/internet) ---
 // Αντικαθιστά οπτικά ένα textarea με toolbar + contenteditable div. Το ίδιο
 // το textarea παραμένει στο DOM (κρυφό) ως πηγή αλήθειας — val()/.value
@@ -338,7 +455,7 @@ function makeRichEditor(textareaId) {{
     }};
     input.click();
   }});
-  addBtn('✕ Καθαρισμός', () => {{ if (confirm('Καθαρισμός περιεχομένου;')) {{ editor.innerHTML = ''; sync(); }} }});
+  addBtn('✕ Καθαρισμός', () => {{ dashConfirm('Καθαρισμός περιεχομένου;').then(ok => {{ if (ok) {{ editor.innerHTML = ''; sync(); }} }}); }});
 
   editor.addEventListener('input', sync);
   editor.addEventListener('blur', sync);
@@ -363,6 +480,39 @@ window.addEventListener('beforeunload', (e) => {{
   }}
 }});
 
+// Ύψος του καρφωμένου header → CSS μεταβλητή --hdr-h, ώστε η μπάρα tabs να κολλάει ακριβώς κάτω του.
+(function initStickyTop() {{
+  const set = () => {{
+    const h = document.querySelector('body > header');
+    if (h) document.documentElement.style.setProperty('--hdr-h', h.offsetHeight + 'px');
+  }};
+  window.addEventListener('load', () => {{
+    set();
+    const h = document.querySelector('body > header');
+    if (h && window.ResizeObserver) new ResizeObserver(set).observe(h);
+  }});
+  window.addEventListener('resize', set);
+}})();
+
+// Κουμπί «μετάβαση στην κορυφή» — αυτοδημιουργείται εδώ ώστε κάθε app να το
+// παίρνει έτοιμο απλώς αντιγράφοντας αυτό το module, χωρίς δικό του HTML/CSS/JS.
+(function initScrollTopButton() {{
+  window.addEventListener('load', () => {{
+    if (document.getElementById('scroll_top_btn') || document.querySelector('.scroll-top-btn')) return;
+  const btn = document.createElement('button');
+  btn.className = 'scroll-top-btn';
+  btn.type = 'button';
+  btn.title = 'Μετάβαση στην κορυφή';
+  btn.setAttribute('aria-label', 'Μετάβαση στην κορυφή');
+  btn.textContent = '↑';
+  btn.onclick = () => window.scrollTo({{top: 0, behavior: 'smooth'}});
+  document.body.appendChild(btn);
+  window.addEventListener('scroll', () => {{
+    btn.classList.toggle('visible', window.scrollY > 300);
+  }}, {{passive: true}});
+  }});
+}})();
+
 {f'''// Standalone mode μόνο: όταν κλείνει πραγματικά το tab, ζητάμε από τον
 // server να τερματίσει. Σε embedded mode το endpoint δεν υπάρχει στο
 // routing του parent, οπότε το beacon απλά αποτυγχάνει αθόρυβα. Αν υπάρχει
@@ -385,15 +535,9 @@ except ImportError:
 
 
 class AppScheduler:
-    """Προγραμματισμός (daily/weekly/workdays + ώρα) ΓΙΑ ΑΥΤΟ ΚΑΙ ΜΟΝΟ ΑΥΤΟ το
-    app — ίδια λογική/βιβλιοθήκη (`schedule`) με τον προγραμματισμό ανά-app
-    του κεντρικού dashboard.py, αλλά ένα instance ζει μέσα στο δικό του gui.py
-    process, μόνο για τον εαυτό του. Persist σε apps/<app>/schedule.json.
-    Όταν χτυπήσει η ώρα, τρέχει headless το main_script (subprocess, ίδιος
-    τρόπος με το κεντρικό dashboard) — δουλεύει όταν το app τρέχει από πηγαίο
-    κώδικα· σε packaged exe δεν υπάρχει ξεχωριστό main_script αρχείο ώστε να
-    γίνει subprocess (θα χρειαστεί follow-up όταν ενεργοποιηθεί πραγματικά η
-    διανομή exe)."""
+    """Προγραμματισμός (daily/weekly/workdays + ώρα) ΓΙΑ ΑΥΤΟ το app μέσω Windows Task Scheduler (εργασία «Dash_<app>»):
+    τρέχει headless το main_script ακόμα κι όταν το app/dashboard είναι κλειστό. Persist σε apps/<app>/schedule.json.
+    Η λογική δημιουργίας της εργασίας βρίσκεται στο dashboard_winsched.py της ρίζας του dashboard (δουλεύει από πηγαίο κώδικα)."""
 
     WEEKDAYS = ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday')
 
@@ -401,14 +545,23 @@ class AppScheduler:
         self.app_dir = app_dir
         self.schedule_file = app_dir / 'schedule.json'
         self.main_script = self._resolve_main_script()
-        self._jobs: list = []
-        self._lock = threading.Lock()
-        if _schedule_lib is not None:
-            saved = self.get_schedule()
-            if saved.get('type', 'none') != 'none':
-                self._apply(saved['type'], saved.get('time', '09:00'), saved.get('weekday', 'monday'))
-            t = threading.Thread(target=self._run_loop, daemon=True)
-            t.start()
+        self._winsched = self._load_winsched()
+        saved = self.get_schedule()
+        if self._winsched is not None and saved.get('type', 'none') != 'none':
+            threading.Thread(target=self._sync, args=(saved['type'], saved.get('time', '09:00'), saved.get('weekday', 'monday'), saved.get('days'), saved.get('date'), bool(saved.get('skip_holidays'))), daemon=True).start()
+
+    def _load_winsched(self):
+        try:
+            import importlib.util
+            p = Path(self.app_dir).resolve().parent.parent / 'dashboard_winsched.py'
+            if not p.exists():
+                return None
+            spec = importlib.util.spec_from_file_location('dashboard_winsched', p)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod
+        except Exception:
+            return None
 
     def _resolve_main_script(self) -> Path | None:
         try:
@@ -419,14 +572,6 @@ class AppScheduler:
         except Exception:
             return None
 
-    def _run_loop(self) -> None:
-        while True:
-            try:
-                _schedule_lib.run_pending()
-            except Exception:
-                pass
-            time.sleep(1)
-
     def get_schedule(self) -> dict:
         if self.schedule_file.exists():
             try:
@@ -436,64 +581,51 @@ class AppScheduler:
                 pass
         return {'type': 'none', 'time': '09:00', 'weekday': 'monday'}
 
-    def _apply(self, schedule_type: str, time_str: str, weekday: str) -> None:
-        for job in self._jobs:
-            _schedule_lib.cancel_job(job)
-        self._jobs = []
-        if schedule_type == 'daily':
-            self._jobs.append(_schedule_lib.every().day.at(time_str).do(self._run_async))
-        elif schedule_type == 'weekly':
-            self._jobs.append(getattr(_schedule_lib.every(), weekday).at(time_str).do(self._run_async))
-        elif schedule_type == 'workdays':
-            for day in ('monday', 'tuesday', 'wednesday', 'thursday', 'friday'):
-                self._jobs.append(getattr(_schedule_lib.every(), day).at(time_str).do(self._run_async))
+    def _sync(self, schedule_type: str, time_str: str, weekday: str, days=None, date=None, skip_holidays=False) -> tuple:
+        try:
+            return self._winsched.sync_task(self.app_dir.name, self.app_dir, self.main_script, schedule_type, time_str, weekday,
+                                            None, days, date, skip_holidays)
+        except TypeError:   # παλιό dashboard_winsched.py χωρίς days/date/skip_holidays
+            return self._winsched.sync_task(self.app_dir.name, self.app_dir, self.main_script, schedule_type, time_str, weekday)
 
-    def set_schedule(self, schedule_type: str, time_str: str = '09:00', weekday: str = 'monday') -> tuple:
-        if _schedule_lib is None:
-            return False, 'Η βιβλιοθήκη scheduling δεν είναι διαθέσιμη σε αυτή την εγκατάσταση.'
-        if schedule_type not in ('none', 'daily', 'weekly', 'workdays'):
+    def set_schedule(self, schedule_type: str, time_str: str = '09:00', weekday: str = 'monday',
+                     days=None, date=None, skip_holidays=None) -> tuple:
+        if self._winsched is None:
+            return False, 'Δεν βρέθηκε το dashboard_winsched.py (ο προγραμματισμός δουλεύει από πηγαίο κώδικα, μέσα στο φάκελο του dashboard).'
+        if schedule_type not in ('none', 'daily', 'weekly', 'workdays', 'days', 'once'):
             return False, 'Άγνωστος τύπος προγραμματισμού.'
-        with self._lock:
-            for job in self._jobs:
-                _schedule_lib.cancel_job(job)
-            self._jobs = []
-            if schedule_type != 'none':
-                self._apply(schedule_type, time_str, weekday)
+        days = [d for d in self.WEEKDAYS if d in (days or [])]
+        if skip_holidays is None:
+            skip_holidays = bool(self.get_schedule().get('skip_holidays'))
+        ok, msg = self._sync(schedule_type, time_str, weekday, days, date, skip_holidays)
+        if not ok:
+            return False, msg
         try:
             import json
             self.schedule_file.write_text(
-                json.dumps({'type': schedule_type, 'time': time_str, 'weekday': weekday}, ensure_ascii=False, indent=2),
+                json.dumps({'type': schedule_type, 'time': time_str, 'weekday': weekday,
+                            **({'days': days} if schedule_type == 'days' else {}),
+                            **({'date': date} if schedule_type == 'once' else {}),
+                            **({'skip_holidays': True} if skip_holidays and schedule_type not in ('none', 'once') else {})},
+                           ensure_ascii=False, indent=2),
                 encoding='utf-8')
         except Exception:
             pass
-        if schedule_type == 'none':
-            return True, 'Ο προγραμματισμός απενεργοποιήθηκε.'
-        return True, f'Προγραμματίστηκε: {schedule_type} στις {time_str}.'
-
-    def _run_async(self) -> None:
-        threading.Thread(target=self._run_once, daemon=True).start()
-
-    def _run_once(self) -> None:
-        if not self.main_script or not self.main_script.exists():
-            return
-        try:
-            subprocess.run([sys.executable, str(self.main_script)], cwd=str(self.app_dir),
-                           capture_output=True, text=True, encoding='utf-8', errors='replace',
-                           timeout=3600)
-        except Exception:
-            pass
+        return True, msg
 
 
 HEADER_ACTIONS_HTML = (
     '<div class="header-actions">'
-    '<button id="schedule_btn" onclick="openScheduleModal()" title="Προγραμματισμός αυτόματης εκτέλεσης">🕒</button>'
-    '<button id="close_app_btn" class="danger" onclick="confirmCloseApp()" title="Κλείσιμο εφαρμογής">⏻</button>'
     + THEME_TOGGLE_BUTTON_HTML +
+    '<button id="schedule_btn" onclick="openScheduleModal()" title="Προγραμματισμός αυτόματης εκτέλεσης">🕒</button>'
+    '<button id="restart_app_btn" class="success" onclick="confirmRestartApp()" style="display:none" '
+    'title="Επανεκκίνηση της εφαρμογής και του dashboard">⟳</button>'
+    '<button id="close_app_btn" class="danger" onclick="confirmCloseApp()" title="Κλείσιμο εφαρμογής">⏻</button>'
     '</div>'
 )
 
 SCHEDULING_JS = r'''
-const SCHEDULE_TYPE_LABELS = {none: 'Χωρίς', daily: 'Καθημερινά', weekly: 'Εβδομαδιαία', workdays: 'Εργάσιμες'};
+const SCHEDULE_TYPE_LABELS = {none: 'Χωρίς', daily: 'Καθημερινά', weekly: 'Εβδομαδιαία', workdays: 'Εργάσιμες', days: 'Συγκεκριμένες μέρες', once: 'Μία φορά'};
 const SCHEDULE_WEEKDAY_LABELS = {monday:'Δευτέρα', tuesday:'Τρίτη', wednesday:'Τετάρτη', thursday:'Πέμπτη', friday:'Παρασκευή', saturday:'Σάββατο', sunday:'Κυριακή'};
 
 function confirmCloseApp() {
@@ -505,6 +637,51 @@ function confirmCloseApp() {
       // browsers το αγνοούν σιωπηλά, γι' αυτό μένει και το μήνυμα ως fallback.
       setTimeout(() => window.close(), 300);
     });
+  });
+}
+
+// Επανεκκίνηση: κλείνει η εφαρμογή (περιμένει τυχόν ενεργή εργασία), κάνει
+// restart το dashboard και το ΝΕΟ dashboard ξανανοίγει την εφαρμογή. Το κουμπί
+// φαίνεται μόνο όταν η σελίδα σερβίρεται μέσα από το dashboard (/<app_id>/).
+const _DASH_APP_ID = location.pathname.split('/')[1] || '';
+setTimeout(() => {
+  if (!_DASH_APP_ID) return;
+  fetch('/api/apps').then(r => r.ok ? r.json() : []).then(list => {
+    if (Array.isArray(list) && list.some(a => a.id === _DASH_APP_ID)) {
+      const b = document.getElementById('restart_app_btn');
+      if (b) b.style.display = '';
+    }
+  }).catch(() => {});
+}, 0);
+
+function confirmRestartApp() {
+  showConfirmModal('Επανεκκίνηση εφαρμογής',
+    'Θα κλείσει η εφαρμογή, θα γίνει επανεκκίνηση του dashboard και θα ξανανοίξει η εφαρμογή. Οι άλλες ανοιχτές εφαρμογές θα χάσουν τη σύνδεσή τους. Αν τρέχει εργασία, θα περιμένει να τελειώσει. Σίγουρα;',
+    'Επανεκκίνηση', () => {
+    // Το pid του τρέχοντος dashboard πριν το restart: το reload γίνεται όταν απαντήσει
+    // ΝΕΟ dashboard (άλλο pid) ΚΑΙ η εφαρμογή ξανατρέχει — δεν εξαρτάται από το να
+    // προλάβουμε να δούμε το διάστημα που το dashboard είναι κάτω.
+    const getPid = () => fetch('/api/dashboard-pid', {cache: 'no-store'}).then(r => r.json()).then(r => r.pid);
+    getPid().catch(() => null).then(oldPid => fetch('/api/restart-app/' + encodeURIComponent(_DASH_APP_ID), {method: 'POST'})
+      .then(r => r.json()).then(r => {
+      if (!r.ok) { alert('Αποτυχία επανεκκίνησης: ' + (r.message || '')); return; }
+      document.body.innerHTML = '<div style="padding:60px;text-align:center;font-size:18px">' +
+        'Η εφαρμογή επανεκκινείται…</div>' +
+        '<div class="restart-progress"><div class="restart-progress-fill"></div></div>' +
+        '<div style="text-align:center;margin-top:10px" class="hint">Αν τρέχει εργασία, περιμένει να τελειώσει. Η σελίδα θα φορτώσει ξανά αυτόματα.</div>';
+      const tmo = (ms) => { const c = new AbortController(); setTimeout(() => c.abort(), ms); return c.signal; };
+      const poll = async () => {
+        try {
+          const pid = await fetch('/api/dashboard-pid', {cache: 'no-store', signal: tmo(3000)}).then(x => x.json()).then(x => x.pid);
+          if (pid !== oldPid) {
+            const resp = await fetch(location.pathname, {cache: 'no-store', signal: tmo(5000)});
+            if (resp.ok) { location.reload(); return; }
+          }
+        } catch (e) { /* το dashboard είναι ακόμα κάτω */ }
+        setTimeout(poll, 1000);
+      };
+      setTimeout(poll, 2000);
+    })).catch(e => alert('Αποτυχία επανεκκίνησης: ' + e));
   });
 }
 
@@ -520,7 +697,11 @@ function openScheduleModal() {
       <h3>🕒 Προγραμματισμός</h3>
       <div class="row"><label>Τύπος</label><select id="sm_type" onchange="_smUpdateVisibility()">${typeOptions}</select></div>
       <div class="row" id="sm_day_row"><label>Ημέρα</label><select id="sm_day">${dayOptions}</select></div>
+      <div class="row" id="sm_days_row"><label>Μέρες</label><span>${Object.keys(SCHEDULE_WEEKDAY_LABELS).map(d =>
+        `<label style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;min-width:0"><input type="checkbox" class="sm_dayck" value="${d}" ${(sched.days || []).includes(d) ? 'checked' : ''} style="width:auto"> ${SCHEDULE_WEEKDAY_LABELS[d].slice(0, 3)}</label>`).join('')}</span></div>
+      <div class="row" id="sm_date_row"><label>Ημερομηνία</label><input type="date" id="sm_date" value="${sched.date || ''}" style="width:160px"></div>
       <div class="row"><label>Ώρα</label><input type="time" id="sm_time" value="${sched.time || '09:00'}"></div>
+      <div class="row" id="sm_hol_row"><label>Αργίες</label><label class="switch"><input type="checkbox" id="sm_skip_hol" ${sched.skip_holidays ? 'checked' : ''}><span class="slider"></span></label><span style="margin-left:8px;font-size:12px" title="Αν η μέρα είναι επίσημη αργία (Πάσχα, 25η Μαρτίου, 28η Οκτωβρίου κ.λπ.) το app δεν τρέχει και η εκτέλεση παραλείπεται.">Να μην τρέχει τις αργίες</span></div>
       <div class="row" style="text-align:right;margin-top:16px">
         <span id="sm_result" class="hint"></span>
         <button type="button" id="sm_cancel">Κλείσιμο</button>
@@ -540,13 +721,24 @@ function _smUpdateVisibility() {
   // λείπει τελείως.
   const type = document.getElementById('sm_type').value;
   document.getElementById('sm_day').disabled = (type !== 'weekly');
+  document.getElementById('sm_days_row').style.display = (type === 'days') ? '' : 'none';
+  document.getElementById('sm_date_row').style.display = (type === 'once') ? '' : 'none';
+  document.getElementById('sm_hol_row').style.display = (type === 'none' || type === 'once') ? 'none' : '';
+  if (type === 'once' && !document.getElementById('sm_date').value) {
+    const d = new Date(Date.now() + 86400000), p = n => String(n).padStart(2, '0');
+    document.getElementById('sm_date').value = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  }
 }
 function _smSave() {
   const body = {
     type: document.getElementById('sm_type').value,
     time: document.getElementById('sm_time').value || '09:00',
     weekday: document.getElementById('sm_day').value,
+    days: [...document.querySelectorAll('.sm_dayck:checked')].map(e => e.value),
+    date: (document.getElementById('sm_date') || {}).value || '',
+    skip_holidays: document.getElementById('sm_skip_hol').checked,
   };
+  if (body.type === 'days' && !body.days.length) { document.getElementById('sm_result').textContent = 'Διάλεξε τουλάχιστον μία ημέρα.'; return; }
   api('schedule', body).then(r => {
     document.getElementById('sm_result').textContent = r.message || '';
     if (r.ok) setTimeout(() => { if (window._smOverlay) window._smOverlay.remove(); }, 1200);
@@ -578,7 +770,8 @@ def register_common_routes(flask_app, app_dir: Path, any_job_active=None,
             return jsonify(scheduler.get_schedule())
         body = request.get_json(force=True, silent=True) or {}
         ok, message = scheduler.set_schedule(
-            body.get('type', 'none'), body.get('time', '09:00'), body.get('weekday', 'monday'))
+            body.get('type', 'none'), body.get('time', '09:00'), body.get('weekday', 'monday'),
+            body.get('days'), body.get('date'), body.get('skip_holidays'))
         return jsonify({'ok': ok, 'message': message})
 
     @flask_app.before_request
@@ -586,6 +779,8 @@ def register_common_routes(flask_app, app_dir: Path, any_job_active=None,
         if request.path == '/api/shutdown':
             return
         with lock:
+            if state.get('final'):
+                return  # οριστικό κλείσιμο (restart από το dashboard) — δεν ακυρώνεται
             if state['shutdown_timer'] is not None:
                 state['shutdown_timer'].cancel()
                 state['shutdown_timer'] = None
@@ -605,7 +800,10 @@ def register_common_routes(flask_app, app_dir: Path, any_job_active=None,
 
     @flask_app.route('/api/shutdown', methods=['POST'])
     def _shutdown():
+        body = request.get_json(force=True, silent=True) or {}
         with lock:
+            if body.get('final'):
+                state['final'] = True
             if state['shutdown_timer'] is not None:
                 state['shutdown_timer'].cancel()
             timer = threading.Timer(shutdown_grace_seconds, _do_shutdown)
@@ -619,7 +817,7 @@ def register_common_routes(flask_app, app_dir: Path, any_job_active=None,
         browse_type = request.args.get('type', 'file')
         browse_filter = request.args.get('filter', '')
         filetypes_by_key = {
-            'excel': [('Excel/CSV αρχεία', '*.xlsx *.xls *.csv'), ('Όλα τα αρχεία', '*.*')],
+            'excel': [('Excel/CSV αρχεία', '*.xlsx *.xlsm *.xls *.csv'), ('Όλα τα αρχεία', '*.*')],
             'pdf':   [('Αρχεία PDF', '*.pdf'), ('Όλα τα αρχεία', '*.*')],
             'json':  [('Αρχεία JSON', '*.json'), ('Όλα τα αρχεία', '*.*')],
             'image': [('Εικόνες', '*.png *.jpg *.jpeg *.gif *.bmp'), ('Όλα τα αρχεία', '*.*')],
@@ -656,6 +854,21 @@ def register_common_routes(flask_app, app_dir: Path, any_job_active=None,
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text('', encoding='utf-8')
             os.startfile(str(p))
+            return jsonify({'ok': True})
+        except Exception as e:
+            return jsonify({'ok': False, 'error': str(e)})
+
+    @flask_app.route('/api/open-url', methods=['POST'])
+    def _open_url():
+        body = request.get_json(force=True, silent=True) or {}
+        url = (body.get('url') or '').strip()
+        if not url:
+            return jsonify({'ok': False, 'error': 'Δεν έχει οριστεί διεύθυνση URL'}), 400
+        if not re.match(r'^https?://', url, re.IGNORECASE):
+            url = 'https://' + url
+        try:
+            import webbrowser
+            webbrowser.open(url)
             return jsonify({'ok': True})
         except Exception as e:
             return jsonify({'ok': False, 'error': str(e)})
@@ -922,8 +1135,8 @@ function helpLoadLocalVersions() {
     ).join('');
   });
 }
-function helpRollback(version, btn) {
-  if (!confirm('Επαναφορά στην έκδοση ' + version + '; Η εφαρμογή θα επανεκκινήσει.')) return;
+async function helpRollback(version, btn) {
+  if (!await dashConfirm('Επαναφορά στην έκδοση ' + version + '; Η εφαρμογή θα επανεκκινήσει.')) return;
   btn.disabled = true;
   api('rollback-version', {version: version}).then(r => {
     if (r && r.ok === false) { alert('Αποτυχία: ' + (r.message || '')); btn.disabled = false; }
@@ -965,12 +1178,32 @@ class JobManager:
         with self._lock:
             return any(j['status'] in ('running', 'paused') for j in self._jobs.values())
 
-    def start(self, target_fn, *args, debug: bool = True, total: int = 0, **kwargs) -> str:
+    def start(self, target_fn, *args, debug: bool = True, total: int = 0,
+              log_file: str | None = None, app_dir: 'Path | None' = None, **kwargs) -> str:
         """target_fn(logger, control, progress_cb, *args, **kwargs) -> dict.
         Η επιστρεφόμενη dict αποθηκεύεται ως 'result' — καλό να περιέχει
-        τουλάχιστον {'exit_code': int}."""
+        τουλάχιστον {'exit_code': int}.
+        log_file/app_dir (προαιρετικά): αν δοθούν, κάθε γραμμή log γράφεται
+        (append) στο αρχείο ΤΗ ΣΤΙΓΜΗ που παράγεται (μέσω logger.subscribe),
+        όχι μόνο στο τέλος — ένα run πολλών ωρών πρέπει να είναι ορατό στο
+        αρχείο ενώ ακόμα τρέχει, αλλιώς ο χρήστης βλέπει μόνο τα παλιά logs
+        προηγούμενων runs και νομίζει ότι κόλλησε. Πέρασέ τα πάντα από τα
+        _api_run handlers: JOBS.start(target, debug=debug,
+        log_file=config.get('<APP>_LOG_FILE'), app_dir=APP_DIR)."""
         if RunLogger is None:
             raise RuntimeError('dashboard_core_common.py δεν βρέθηκε δίπλα σε αυτό το αρχείο')
+        if not (log_file and app_dir):
+            # Προεπιλογή: το log_file του config.json (το ίδιο που διαβάζει το
+            # dashboard για το χρώμα του tile) — ώστε ΚΑΘΕ run από GUI να
+            # ενημερώνει το tile, χωρίς να χρειάζεται να το περάσει κάθε app.
+            try:
+                import json
+                _dir = Path(__file__).resolve().parent
+                _lf = json.loads((_dir / 'config.json').read_text(encoding='utf-8')).get('log_file')
+                if _lf:
+                    log_file, app_dir = _lf, _dir
+            except Exception:
+                pass
         job_id = uuid.uuid4().hex[:12]
         logger = RunLogger(self.app_name, debug=debug)
         control = JobControl()
@@ -978,6 +1211,21 @@ class JobManager:
               'progress': {'current': 0, 'total': total}, 'result': None}
         with self._lock:
             self._jobs[job_id] = job
+
+        if log_file and app_dir:
+            log_path = Path(log_file)
+            if not log_path.is_absolute():
+                log_path = app_dir / log_path
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+
+            def _append_line(line, level):
+                try:
+                    with open(log_path, 'a', encoding='utf-8') as f:
+                        f.write(line + '\n')
+                except Exception:
+                    pass
+
+            logger.subscribe(_append_line)
 
         def progress_cb(current, total_=None, **extra):
             job['progress'] = {'current': current, 'total': total_ if total_ is not None else job['progress']['total'], **extra}
@@ -987,9 +1235,13 @@ class JobManager:
                 result = target_fn(logger, control, progress_cb, *args, **kwargs)
                 job['result'] = result
                 job['status'] = 'stopped' if control.stop_event.is_set() else 'done'
+                if log_file and app_dir and isinstance(result, dict) and isinstance(result.get('exit_code'), int):
+                    log_final_status(logger, result['exit_code'])
             except Exception as e:
                 logger.log(f'Απρόσμενο σφάλμα: {e}', 'ERROR')
                 job['status'] = 'error'
+                if log_file and app_dir:
+                    log_final_status(logger, 1)
 
         t = threading.Thread(target=runner, daemon=True)
         job['thread'] = t
