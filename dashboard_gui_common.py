@@ -1008,9 +1008,9 @@ except ImportError:  # αντιγράφτηκε μόνο το gui_common χωρ�
 
 
 def check_for_update(app_dir: Path) -> dict:
-    """Πραγματικός έλεγχος μέσω Google Drive (δημόσιο link, ανώνυμο — βλ.
+    """Πραγματικός έλεγχος μέσω του server ενημερώσεων (ανώνυμο HTTPS — βλ.
     dashboard_update_common.py). Graceful 'δεν έχει ρυθμιστεί' αν το app δεν
-    έχει ανέβει ποτέ στο Drive (δεν υπάρχει distribution.json) ή αν αυτό το
+    έχει δημοσιευτεί ποτέ (δεν υπάρχει distribution.json) ή αν αυτό το
     module δεν είναι διαθέσιμο."""
     if _update is None:
         return {'ok': True, 'configured': False,
