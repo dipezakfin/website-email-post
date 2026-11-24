@@ -38,6 +38,54 @@ STATUS_WARNING_MARKER = 'ΟΛΟΚΛΗΡΩΘΗΚΕ ΜΕ ΠΡΟΕΙΔΟΠΟΙΗΣ�
 STATUS_ERROR_MARKER   = 'ΟΛΟΚΛΗΡΩΘΗΚΕ ΜΕ ΣΦΑΛΜΑ'
 
 
+def password_candidates(password: str, today: 'datetime | None' = None) -> list:
+    """Λίστα (password, tag) προς δοκιμή για κωδικούς με ενσωματωμένο YYYYMM
+    (π.χ. 'Dpe202602$$'), που αλλάζουν κάθε μήνα. Σειρά:
+      1. ο κωδικός όπως είναι στο .env            (tag 'configured')
+      2. ο επόμενος μήνας από αυτόν του .env       (π.χ. 202602 → 202603, 202612 → 202701)
+      3. ο τρέχων μήνας του ημερολογίου            (π.χ. 202609)
+      4. ο Ιανουάριος του τρέχοντος έτους          (π.χ. 202701 — όταν άλλαξε η χρονιά)
+    Διπλότυπα αφαιρούνται. Αν ο κωδικός δεν περιέχει YYYYMM (έτος 20xx + μήνας 01-12),
+    επιστρέφεται μόνο ο ίδιος — ΔΕΝ γίνονται πολλαπλές δοκιμές (κίνδυνος κλειδώματος
+    λογαριασμού από αποτυχημένες προσπάθειες). Το tag δεν περιέχει ποτέ τον κωδικό."""
+    import re
+    m = re.search(r'(20\d{2})(0[1-9]|1[0-2])', password or '')
+    out = [(password, 'configured')]
+    if not m:
+        return out
+    now = today or datetime.now()
+    year, month = int(m.group(1)), int(m.group(2))
+    nyear, nmonth = (year + 1, 1) if month == 12 else (year, month + 1)
+    variants = [
+        (nyear, nmonth, 'επόμενος μήνας'),
+        (now.year, now.month, 'τρέχων μήνας'),
+        (now.year, 1, 'Ιανουάριος τρέχοντος έτους'),
+    ]
+    seen = {password}
+    for y, mo, why in variants:
+        cand = password[:m.start()] + f'{y:04d}{mo:02d}' + password[m.end():]
+        if cand not in seen:
+            seen.add(cand)
+            out.append((cand, f'{y:04d}{mo:02d} ({why})'))
+    return out
+
+
+def try_login_with_fallback(password: str, attempt, log) -> str | None:
+    """Καλεί attempt(pw) -> bool για κάθε υποψήφιο κωδικό (βλ. password_candidates)
+    μέχρι να πετύχει. attempt() πρέπει να επιστρέφει False ΜΟΝΟ όταν απορρίφθηκαν τα
+    στοιχεία (όχι σε δικτυακό σφάλμα — εκεί ας κάνει raise). Επιστρέφει τον κωδικό που
+    δούλεψε ή None. Σε επιτυχία με εναλλακτικό κωδικό γράφει WARN (χωρίς τον κωδικό)."""
+    for pw, tag in password_candidates(password):
+        if attempt(pw):
+            if tag != 'configured':
+                log(f"Ο κωδικός του .env ΔΕΝ έγινε δεκτός — έγινε δεκτός ο κωδικός με {tag}. "
+                    f"Ενημέρωσε τον κωδικό στο .env.", 'WARN')
+            return pw
+        log('Η σύνδεση απορρίφθηκε' + ('' if tag == 'configured' else f' (δοκιμή {tag})')
+            + '.', 'WARN' if tag == 'configured' else 'DEBUG')
+    return None
+
+
 class RunLogger:
     """Συλλέκτης log γραμμών· κοινή μορφή σε όλες τις dashboard apps:
     "{timestamp};{app_name};{LEVEL};{message}". Υποστηρίζει subscribers
