@@ -387,96 +387,6 @@ def zip_file_bytes(filename: str, raw_bytes: bytes) -> bytes:
     return buf.getvalue()
 
 
-def gdrive_upload_file(config: dict, filename: str, raw_bytes: bytes, mimetype: str) -> str:
-    """Ανεβάζει σε Google Drive και επιστρέφει δημόσιο (view-only,
-    "anyone with the link") URL. Παρακάμπτει εντελώς το Joomla API -
-    καμία επίδραση από το ModSecurity request-body-size όριο, αφού δεν
-    περνάει καν από το site.
-
-    Χρησιμοποιεί OAuth (ως πραγματικός χρήστης) και όχι service account:
-    τα service accounts δεν έχουν δικό τους αποθηκευτικό χώρο σε
-    προσωπικό (μη-Workspace) Google Drive και αποτυγχάνουν με
-    "storageQuotaExceeded" όταν προσπαθούν να ανεβάσουν αρχεία - μόνο σε
-    Shared Drives δουλεύουν, που απαιτούν Google Workspace. Το token
-    (με refresh_token) παράγεται μία φορά τοπικά με το
-    gdrive_oauth_setup.py και αποθηκεύεται ως WEBSITE_POST_GDRIVE_OAUTH_TOKEN_JSON
-    - ανανεώνεται αυτόματα, χωρίς νέο interactive login, άρα δουλεύει
-    κανονικά μέσα στο GitHub Actions."""
-    from googleapiclient.http import MediaInMemoryUpload
-
-    folder_id = cfg(config, PREFIX + 'GDRIVE_FOLDER_ID')
-    if not folder_id:
-        raise RuntimeError('WEBSITE_POST_GDRIVE_FOLDER_ID δεν έχει ρυθμιστεί')
-    service = _gdrive_service(config)
-
-    media = MediaInMemoryUpload(raw_bytes, mimetype=mimetype or 'application/octet-stream', resumable=False)
-    file = service.files().create(
-        body={'name': filename, 'parents': [folder_id]}, media_body=media, fields='id',
-    ).execute()
-    file_id = file['id']
-
-    service.permissions().create(fileId=file_id, body={'type': 'anyone', 'role': 'reader'}).execute()
-    return f'https://drive.google.com/file/d/{file_id}/view'
-
-
-def _gdrive_service(config: dict):
-    import json as _json
-    from google.auth.transport.requests import Request as GoogleAuthRequest
-    from google.oauth2.credentials import Credentials
-    from googleapiclient.discovery import build
-
-    token_json = cfg(config, PREFIX + 'GDRIVE_OAUTH_TOKEN_JSON')
-    if not token_json:
-        raise RuntimeError('WEBSITE_POST_GDRIVE_OAUTH_TOKEN_JSON δεν έχει ρυθμιστεί')
-
-    creds = Credentials.from_authorized_user_info(_json.loads(token_json))
-    if creds.expired and creds.refresh_token:
-        creds.refresh(GoogleAuthRequest())
-    return build('drive', 'v3', credentials=creds)
-
-
-def check_gdrive_storage_and_notify(config: dict, logger: 'RunLogger') -> None:
-    """Ελέγχει το ποσοστό χρήσης του Google Drive λογαριασμού και στέλνει
-    ειδοποίηση (Telegram/email, ίδιο κανάλι με τις υπόλοιπες ειδοποιήσεις)
-    όταν πλησιάζει το όριο - ΜΟΝΟ ειδοποίηση, καμία αυτόματη διαγραφή
-    αρχείων. Χρησιμοποιεί ένα marker αρχείο δίπλα στο log ώστε να μη
-    στέλνει την ίδια ειδοποίηση σε κάθε run (κάθε 5 λεπτά) - ξαναστέλνει
-    μόνο αν το ποσοστό χρήσης πέσει κάτω από το όριο και μετά το
-    ξαναπεράσει."""
-    if not cfg_bool(config, PREFIX + 'GDRIVE_ENABLED', False):
-        return
-
-    threshold_pct = float(cfg(config, PREFIX + 'GDRIVE_STORAGE_ALERT_PERCENT', '90'))
-    marker_path = Path(cfg(config, PREFIX + 'LOG_FILE_PATH', 'logs/post_log.csv')).parent / '.gdrive_storage_alert_sent'
-
-    try:
-        service = _gdrive_service(config)
-        about = service.about().get(fields='storageQuota').execute()
-        quota = about.get('storageQuota', {})
-        limit = quota.get('limit')
-        usage = quota.get('usage')
-        if not limit or not usage:
-            return  # π.χ. Workspace λογαριασμός χωρίς όριο - δεν εφαρμόζεται
-
-        limit, usage = int(limit), int(usage)
-        used_pct = usage / limit * 100
-
-        if used_pct >= threshold_pct:
-            if not marker_path.exists():
-                send_notification(
-                    config, logger, 'Google Drive - χώρος αποθήκευσης',
-                    f'Ο λογαριασμός Google Drive που χρησιμοποιείται για τα συνημμένα emails '
-                    f'έχει φτάσει {used_pct:.1f}% χρήση ({usage // (1024**3)}GB / {limit // (1024**3)}GB). '
-                    f'Σύντομα μπορεί να αρχίσουν να αποτυγχάνουν τα uploads συνημμένων.',
-                )
-                marker_path.parent.mkdir(parents=True, exist_ok=True)
-                marker_path.write_text(f'{used_pct:.1f}', encoding='utf-8')
-        elif marker_path.exists():
-            marker_path.unlink()
-    except Exception as e:
-        logger.log(f'Αποτυχία ελέγχου χώρου Google Drive: {e}', 'WARN')
-
-
 YOUTUBE_URL_RE = re.compile(
     r"(?:https?://)?(?:www\.|m\.)?(?:youtube\.com/(?:watch\?v=|embed/|shorts/)|youtu\.be/)([\w-]{11})[^\s\"'<>]*",
     re.IGNORECASE,
@@ -1143,7 +1053,6 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
     # different "Πρόσκληση.pdf") never collide in the shared media folder.
     unique_prefix = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S') + '-' + uuid.uuid4().hex[:6]
 
-    gdrive_enabled = cfg_bool(config, PREFIX + 'GDRIVE_ENABLED', False)
     zip_large_files = cfg_bool(config, PREFIX + 'ZIP_LARGE_FILES', True)
     max_attachment_bytes = int(cfg(config, PREFIX + 'MAX_ATTACHMENT_KB', '700')) * 1024
 
@@ -1166,21 +1075,8 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
                 f'({len(upload_bytes) // 1024}KB) πριν το ανέβασμα',
             )
 
-        try:
-            _, doc_url = joomla_upload_media(config, safe_name, upload_bytes, media_adapter_docs)
-            uploaded_doc_links.append((upload_filename, doc_url))
-        except Exception as e:
-            if not gdrive_enabled:
-                raise
-            # Το site (π.χ. ModSecurity) απέρριψε το upload - fallback σε
-            # Google Drive με το ΑΡΧΙΚΟ (μη-zip) αρχείο, που δεν έχει
-            # όριο μεγέθους. Το site παραμένει πάντα η πρώτη επιλογή.
-            logger.log(
-                f'Απέτυχε το ανέβασμα του "{filename}" στο site ({e}) - fallback σε Google Drive',
-                'WARN',
-            )
-            doc_url = gdrive_upload_file(config, f'{unique_prefix}-{sanitize_filename(filename)}', raw_bytes, content_type)
-            uploaded_doc_links.append((filename, doc_url))
+        _, doc_url = joomla_upload_media(config, safe_name, upload_bytes, media_adapter_docs)
+        uploaded_doc_links.append((upload_filename, doc_url))
 
     image_tags_html = []
     for filename, raw_bytes, _content_type, content_id in images:
@@ -1244,7 +1140,6 @@ def run_check_mail(config: dict, logger: RunLogger, control=None, progress_cb=No
     if dry_run:
         logger.log('DRY RUN ενεργό — δεν θα δημιουργηθούν πραγματικά άρθρα ούτε θα μετακινηθούν emails', 'WARN')
 
-    check_gdrive_storage_and_notify(config, logger)
 
     if not dry_run:
         retry_failed_messages(config, logger)

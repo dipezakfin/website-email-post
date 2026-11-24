@@ -41,8 +41,6 @@ GITHUB_SECRET_KEYS = {
     'WEBSITE_POST_READMORE_AFTER_PARAGRAPHS',
     'WEBSITE_POST_NOTIFY_TELEGRAM', 'WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES', 'WEBSITE_POST_REPLY_TO_SENDER',
     'WEBSITE_POST_UNPUBLISH_LINK_SECRET',
-    'WEBSITE_POST_GDRIVE_ENABLED', 'WEBSITE_POST_GDRIVE_FOLDER_ID', 'WEBSITE_POST_GDRIVE_OAUTH_TOKEN_JSON',
-    'WEBSITE_POST_GDRIVE_STORAGE_ALERT_PERCENT',
 }
 
 
@@ -324,17 +322,6 @@ __HEAD_SCRIPT__
       <span class="hint">βοηθάει σε doc/txt/csv· τα xlsx/docx/pdf είναι ήδη συμπιεσμένα, δεν μικραίνουν πολύ. Αγνοείται αν είναι ενεργό το Google Drive παρακάτω.</span></div>
   </fieldset>
 
-  <fieldset><legend>Google Drive για συνημμένα</legend>
-    <span class="hint">Όταν είναι ενεργό, όλα τα μη-εικόνα συνημμένα ανεβαίνουν στο Google Drive αντί για το Joomla - παρακάμπτει εντελώς το όριο μεγέθους του server (ModSecurity).</span>
-    <div class="row"><label>Ενεργό</label><label class="switch"><input type="checkbox" id="cfg_WEBSITE_POST_GDRIVE_ENABLED" onchange="saveCfg()"><span class="slider"></span></label></div>
-    <div class="row"><label>Drive Folder ID</label><input id="cfg_WEBSITE_POST_GDRIVE_FOLDER_ID" style="width:400px" onchange="saveCfg()">
-      <span class="hint">το ID του φακέλου Google Drive (από το URL του φακέλου)</span></div>
-    <div class="row"><label>OAuth Token JSON</label><textarea id="cfg_WEBSITE_POST_GDRIVE_OAUTH_TOKEN_JSON" style="width:400px;height:80px;font-family:monospace;font-size:11px" onchange="saveCfg()"></textarea>
-      <span class="hint">τρέξε τοπικά `python gdrive_oauth_setup.py` μία φορά (κάνει login με τον προσωπικό σου λογαριασμό) και επικόλλησε εδώ ό,τι τυπώσει</span></div>
-    <div class="row"><label>Ειδοποίηση όταν ο χώρος φτάσει (%)</label><input type="number" id="cfg_WEBSITE_POST_GDRIVE_STORAGE_ALERT_PERCENT" style="width:100px" onchange="saveCfg()">
-      <span class="hint">μόνο ειδοποίηση (Telegram/email, ίδιο κανάλι με τις άλλες ειδοποιήσεις) — καμία αυτόματη διαγραφή</span></div>
-  </fieldset>
-
   <fieldset><legend>Ειδοποιήσεις ανάρτησης</legend>
     <div class="row"><label>Ειδοποίηση στο Telegram</label><label class="switch"><input type="checkbox" id="cfg_WEBSITE_POST_NOTIFY_TELEGRAM" onchange="saveCfg()"><span class="slider"></span></label>
       <span class="hint">χρησιμοποιεί το bot που ήδη έχεις ρυθμίσει (TELEGRAM_BOT_TOKEN/TELEGRAM_ALLOWED_CHAT_IDS)</span></div>
@@ -478,10 +465,6 @@ function _collectSettings() {
     WEBSITE_POST_MAX_ATTACHMENT_KB: val('cfg_WEBSITE_POST_MAX_ATTACHMENT_KB'),
     WEBSITE_POST_SHRINK_LARGE_IMAGES: checked('cfg_WEBSITE_POST_SHRINK_LARGE_IMAGES') ? 'YES' : 'NO',
     WEBSITE_POST_ZIP_LARGE_FILES: checked('cfg_WEBSITE_POST_ZIP_LARGE_FILES') ? 'YES' : 'NO',
-    WEBSITE_POST_GDRIVE_ENABLED: checked('cfg_WEBSITE_POST_GDRIVE_ENABLED') ? 'YES' : 'NO',
-    WEBSITE_POST_GDRIVE_FOLDER_ID: val('cfg_WEBSITE_POST_GDRIVE_FOLDER_ID'),
-    WEBSITE_POST_GDRIVE_OAUTH_TOKEN_JSON: val('cfg_WEBSITE_POST_GDRIVE_OAUTH_TOKEN_JSON'),
-    WEBSITE_POST_GDRIVE_STORAGE_ALERT_PERCENT: val('cfg_WEBSITE_POST_GDRIVE_STORAGE_ALERT_PERCENT'),
     WEBSITE_POST_NOTIFY_TELEGRAM: checked('cfg_WEBSITE_POST_NOTIFY_TELEGRAM') ? 'YES' : 'NO',
     WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES: val('cfg_WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES'),
     WEBSITE_POST_REPLY_TO_SENDER: checked('cfg_WEBSITE_POST_REPLY_TO_SENDER') ? 'YES' : 'NO',
@@ -539,10 +522,6 @@ function loadSettings() {
     setVal('cfg_WEBSITE_POST_MAX_ATTACHMENT_KB', c.WEBSITE_POST_MAX_ATTACHMENT_KB || '700');
     setChecked('cfg_WEBSITE_POST_SHRINK_LARGE_IMAGES', c.WEBSITE_POST_SHRINK_LARGE_IMAGES || 'YES');
     setChecked('cfg_WEBSITE_POST_ZIP_LARGE_FILES', c.WEBSITE_POST_ZIP_LARGE_FILES || 'YES');
-    setChecked('cfg_WEBSITE_POST_GDRIVE_ENABLED', c.WEBSITE_POST_GDRIVE_ENABLED || 'NO');
-    setVal('cfg_WEBSITE_POST_GDRIVE_FOLDER_ID', c.WEBSITE_POST_GDRIVE_FOLDER_ID);
-    setVal('cfg_WEBSITE_POST_GDRIVE_OAUTH_TOKEN_JSON', c.WEBSITE_POST_GDRIVE_OAUTH_TOKEN_JSON);
-    setVal('cfg_WEBSITE_POST_GDRIVE_STORAGE_ALERT_PERCENT', c.WEBSITE_POST_GDRIVE_STORAGE_ALERT_PERCENT || '90');
     setChecked('cfg_WEBSITE_POST_NOTIFY_TELEGRAM', c.WEBSITE_POST_NOTIFY_TELEGRAM || 'NO');
     setVal('cfg_WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES', c.WEBSITE_POST_NOTIFY_EMAIL_ADDRESSES);
     setChecked('cfg_WEBSITE_POST_REPLY_TO_SENDER', c.WEBSITE_POST_REPLY_TO_SENDER || 'NO');
