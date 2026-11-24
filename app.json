@@ -1,0 +1,39 @@
+{
+  "slug": "website-email-post",
+  "name": "Website Email Post",
+  "kind": "dashboard",
+  "group": "Βοηθητικά",
+  "summary": "Αναρτά αυτόματα emails ως άρθρα Joomla (κείμενο, εικόνες, συνημμένα, YouTube, tags)",
+  "inputs": [
+    {
+      "what": "Emails",
+      "from": "γραμματοκιβώτιο"
+    }
+  ],
+  "outputs": [
+    {
+      "what": "Άρθρα (κείμενο, εικόνες, συνημμένα, YouTube, tags)",
+      "to": "Joomla (παλιό σαιτ)"
+    },
+    {
+      "what": "Ειδοποίηση",
+      "to": "Telegram"
+    }
+  ],
+  "depends_on": [],
+  "systems": [
+    "email",
+    "telegram",
+    "joomla"
+  ],
+  "data": {
+    "postgres_tables": [],
+    "sqlite": [],
+    "files": []
+  },
+  "deploy": {},
+  "backup": {},
+  "notes": "",
+  "reviewed": true,
+  "ignore_deps": []
+}
