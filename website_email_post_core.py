@@ -173,6 +173,55 @@ def parse_subject(raw_subject):
     return title, tags, featured_override
 
 
+# ---------------------------------------------------------------------------
+# Σελίδα «Δίκτυα & Δραστηριότητες» (μόνο dipecms)
+# Διαχωρισμός από την αρχική: (α) αποστολέας στη λίστα ACTIVITIES_SENDERS ή
+# (β) hashtag ACTIVITIES_HASHTAG (προεπιλογή #δρασεις) στο θέμα. Τα υπόλοιπα
+# hashtags γίνονται labels από την ΚΛΕΙΣΤΗ λίστα του σαιτ (API ?r=labels).
+# ---------------------------------------------------------------------------
+
+NL = chr(10)
+
+
+def _fold(text: str) -> str:
+    """Πεζά, χωρίς τόνους/διαλυτικά, μόνο γράμματα/ψηφία - για σύγκριση hashtags."""
+    base = ''.join(c for c in unicodedata.normalize('NFD', text.lower()) if unicodedata.category(c) != 'Mn')
+    return re.sub(r'[^0-9a-zα-ως]+', '', base).replace('ς', 'σ')
+
+
+def activities_settings(config: dict) -> dict:
+    cat = cfg(config, PREFIX + 'ACTIVITIES_CATEGORY_ID', '').strip()
+    senders = {a.strip().lower() for a in cfg(config, PREFIX + 'ACTIVITIES_SENDERS', '').split(',') if a.strip()}
+    hashtags = {_fold(h) for h in cfg(config, PREFIX + 'ACTIVITIES_HASHTAG', 'δρασεις,δράσεις,draseis').split(',') if h.strip()}
+    return {'category_id': int(cat) if cat.isdigit() else 0, 'senders': senders, 'hashtags': hashtags}
+
+
+def fetch_labels(config: dict) -> list[dict]:
+    data = dipecms_call(config, 'get', 'labels', timeout=30)
+    return data.get('labels', [])
+
+
+def resolve_labels(config: dict, hashtags: list[str]) -> tuple[list[str], list[str], list[str]]:
+    """(labels που βρέθηκαν, άγνωστα hashtags, διαθέσιμα labels). Αν το API αποτύχει, όλα τα hashtags θεωρούνται άγνωστα."""
+    try:
+        labels = fetch_labels(config)
+    except Exception:
+        return [], list(hashtags), []
+    index = {}
+    for lb in labels:
+        for name in [lb['title'], *lb.get('aliases', [])]:
+            index[_fold(name)] = lb['title']
+    found, unknown = [], []
+    for h in hashtags:
+        title = index.get(_fold(h))
+        if title:
+            if title not in found:
+                found.append(title)
+        else:
+            unknown.append(h)
+    return found, unknown, [lb['title'] for lb in labels]
+
+
 # Κύρια ονόματα (κλειδί: χωρίς τόνους, πεζά) -> σωστή γραφή.
 PROPER_NOUNS = {
     'ζακυνθος': 'Ζάκυνθος', 'ζακυνθου': 'Ζακύνθου', 'ζακυνθο': 'Ζάκυνθο',
@@ -602,7 +651,7 @@ def _joomla_list_recent_articles(config: dict, limit: int = 10) -> list[dict]:
     ]
 
 
-def is_duplicate_article(config: dict, title: str, lookback: int = 40) -> bool:
+def is_duplicate_article(config: dict, title: str, lookback: int = 40, category_id: int | None = None) -> bool:
     """Ελέγχει αν υπάρχει ήδη πρόσφατο άρθρο με πανομοιότυπο τίτλο (μετά
     από normalization κενών/πεζών-κεφαλαίων) - συμβαίνει όταν δύο
     διαφορετικοί εγκεκριμένοι αποστολείς (π.χ. ο διευθυντής ξαναστέλνει
@@ -613,7 +662,8 @@ def is_duplicate_article(config: dict, title: str, lookback: int = 40) -> bool:
     if not normalized:
         return False
     try:
-        recent = joomla_list_recent_articles(config, limit=lookback)
+        recent = (joomla_list_recent_articles(config, limit=lookback, category_id=category_id)
+                  if category_id else joomla_list_recent_articles(config, limit=lookback))
     except Exception:
         return False
     for article in recent:
@@ -686,7 +736,7 @@ def joomla_get_or_create_tag_id(config: dict, tag_name: str):
     return tag_name        # το dipecms δημιουργεί/βρίσκει tags με βάση τον τίτλο
 
 
-def joomla_create_article(config: dict, title, body_html, tag_ids, featured, dry_run: bool):
+def joomla_create_article(config: dict, title, body_html, tag_ids, featured, dry_run: bool, category_id: int | None = None):
     if not _is_dipecms(config):
         return _joomla_create_article(config, title, body_html, tag_ids, featured, dry_run)
     if dry_run:
@@ -694,16 +744,16 @@ def joomla_create_article(config: dict, title, body_html, tag_ids, featured, dry
     status = 'published' if cfg(config, PREFIX + 'DEFAULT_STATUS', 'DRAFT').strip().upper() == 'PUBLISHED' else 'draft'
     data = dipecms_call(config, 'post', 'article', {
         'title': title, 'body': body_html, 'tags': list(tag_ids or []), 'featured': bool(featured),
-        'status': status, 'category_id': int(cfg(config, PREFIX + 'CATEGORY_ID', '0')),
+        'status': status, 'category_id': int(category_id or cfg(config, PREFIX + 'CATEGORY_ID', '0')),
     })
     return data['id']
 
 
-def joomla_list_recent_articles(config: dict, limit: int = 10) -> list[dict]:
+def joomla_list_recent_articles(config: dict, limit: int = 10, category_id: int | None = None) -> list[dict]:
     if not _is_dipecms(config):
         return _joomla_list_recent_articles(config, limit)
     data = dipecms_call(config, 'get', 'articles', params={'limit': limit}, timeout=30)
-    category_id = int(cfg(config, PREFIX + 'CATEGORY_ID', '0') or 0)
+    category_id = int(category_id or cfg(config, PREFIX + 'CATEGORY_ID', '0') or 0)
     return [
         {'id': a['id'], 'title': a.get('title', ''), 'state': 1 if a.get('status') == 'published' else 0, 'created': a.get('created', '')}
         for a in data.get('articles', []) if not category_id or int(a.get('category_id') or 0) == category_id
@@ -1016,7 +1066,8 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
         for a in cfg(config, PREFIX + 'WHITELIST_EMAIL_ADDRESSES', '').split(',')
         if a.strip()
     }
-    if sender_email not in whitelist:
+    net = activities_settings(config) if _is_dipecms(config) else {'category_id': 0, 'senders': set(), 'hashtags': set()}
+    if sender_email not in whitelist and sender_email not in net['senders']:
         logger.log(f'Παράλειψη (μη εγκεκριμένος αποστολέας): {sender_email} - {raw_subject}', 'WARN')
         log_row(config, sender_email, raw_subject, 'SKIPPED_NOT_WHITELISTED')
         if not dry_run:
@@ -1031,7 +1082,23 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
     title = fix_shouting_text(title)
     featured = default_featured if featured_override is None else featured_override
 
-    if is_duplicate_article(config, title):
+    # Δίκτυα & Δραστηριότητες: ο αποστολέας της λίστας (π.χ. υπεύθυνη σχολικών δραστηριοτήτων)
+    # ή όποιος βάλει το hashtag. Οι αποστολείς ΜΟΝΟ της λίστας δεν μπορούν να αναρτήσουν στην αρχική.
+    target_category = None
+    label_warning = ''
+    is_network = bool(net['category_id']) and (
+        (sender_email in net['senders'] and sender_email not in whitelist) or any(_fold(t) in net['hashtags'] for t in tag_names))
+    if is_network:
+        target_category = net['category_id']
+        featured = False       # δεν μπαίνει στη ροή της αρχικής
+        real_tags = [t for t in tag_names if _fold(t) not in net['hashtags']]
+        tag_names, unknown, available = resolve_labels(config, real_tags)
+        if unknown:
+            label_warning = (NL * 2 + '⚠️ Άγνωστα labels (δεν προστέθηκαν): ' + ', '.join('#' + u for u in unknown)
+                             + (NL + 'Διαθέσιμα: ' + ', '.join(available) if available else NL + 'Δεν ήταν δυνατή η ανάγνωση της λίστας labels.'))
+            logger.log('Άγνωστα labels: ' + ', '.join(unknown), 'WARN')
+
+    if is_duplicate_article(config, title, category_id=target_category):
         logger.log(f'Παράλειψη (διπλότυπο περιεχόμενο - υπάρχει ήδη πρόσφατο άρθρο με ίδιο τίτλο): {title}', 'WARN')
         log_row(config, sender_email, raw_subject, 'SKIPPED_DUPLICATE')
         if not dry_run:
@@ -1097,7 +1164,7 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
 
     tag_ids = [joomla_get_or_create_tag_id(config, t) for t in tag_names] if tag_names else []
 
-    article_id = joomla_create_article(config, title, full_body, tag_ids, featured, dry_run)
+    article_id = joomla_create_article(config, title, full_body, tag_ids, featured, dry_run, target_category)
     logger.log(f'Αναρτήθηκε άρθρο (id={article_id}): "{title}" από {sender_email}')
     log_row(config, sender_email, raw_subject, 'POSTED', article_id, len(images) + len(other_files))
 
@@ -1108,7 +1175,10 @@ def process_message(config: dict, raw_email: bytes, logger: RunLogger, dry_run: 
         unpublish_link = article_unpublish_link(config, article_id)
         if unpublish_link:
             reply_body += f'\n\nΑν θέλετε να το αποσύρετε, πατήστε εδώ:\n{unpublish_link}'
+        reply_body += label_warning
         reply_to_sender(config, logger, msg, reply_body)
+        if label_warning:
+            send_notification(config, logger, 'Άγνωστο label σε ανάρτηση', f'⚠️ "{title}" ({sender_email})' + label_warning)
 
     return 'posted'
 

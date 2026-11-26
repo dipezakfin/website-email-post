@@ -3,7 +3,7 @@
   "name": "Website Email Post",
   "kind": "dashboard",
   "group": "Βοηθητικά",
-  "summary": "Αναρτά αυτόματα emails ως άρθρα Joomla (κείμενο, εικόνες, συνημμένα, YouTube, tags)",
+  "summary": "Αναρτά αυτόματα emails ως άρθρα στο dipe.zak.sch.gr (κείμενο, εικόνες, συνημμένα, YouTube, tags). Δεύτερος προορισμός: σελίδα «Σχολικές δραστηριότητες» με labels (κλειστή λίστα).",
   "inputs": [
     {
       "what": "Emails",
@@ -13,18 +13,19 @@
   "outputs": [
     {
       "what": "Άρθρα (κείμενο, εικόνες, συνημμένα, YouTube, tags)",
-      "to": "Joomla (παλιό σαιτ)"
+      "to": "dipe-site (dipe.zak.sch.gr, API)"
     },
     {
       "what": "Ειδοποίηση",
       "to": "Telegram"
     }
   ],
-  "depends_on": [],
+  "depends_on": [
+    "dipe-site"
+  ],
   "systems": [
     "email",
-    "telegram",
-    "joomla"
+    "telegram"
   ],
   "data": {
     "postgres_tables": [],
@@ -33,7 +34,7 @@
   },
   "deploy": {},
   "backup": {},
-  "notes": "",
+  "notes": "ACTIVITIES: αποστολείς WEBSITE_POST_ACTIVITIES_SENDERS ή hashtag #δρασεις → κατηγορία WEBSITE_POST_ACTIVITIES_CATEGORY_ID (13), labels από API ?r=labels. Εβδομαδιαίο mail προς όλα τα σχολεία: dipe-site/app/subs.php (weekly_run).",
   "reviewed": true,
   "ignore_deps": []
 }
